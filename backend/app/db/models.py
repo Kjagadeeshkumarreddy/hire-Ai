@@ -16,6 +16,11 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False) # admin, hr, viewer
+    # SMTP Configuration for dynamic outbound email flawlessly
+    smtp_host = Column(String(255), nullable=True)
+    smtp_port = Column(Integer, server_default='587')
+    smtp_user = Column(String(255), nullable=True)
+    smtp_password = Column(String(255), nullable=True)
     is_active = Column(Boolean, server_default='true')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

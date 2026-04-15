@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import bcrypt
 from typing import Optional
 from app.middleware.auth import verify_token
@@ -53,6 +53,12 @@ class EmailUpdate(BaseModel):
 
 class TokenRefresh(BaseModel):
     refresh_token: str
+
+class SMTPSettingsUpdate(BaseModel):
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = Field(default=587)
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
 
 from app.core.security import create_access_token, create_refresh_token, decode_token
 
@@ -160,3 +166,51 @@ async def update_user_email(
     await db.commit()
     
     return {"message": "Administrative email successfully migrated.", "new_email": user.email}
+
+@router.get("/me/smtp", status_code=status.HTTP_200_OK)
+async def get_smtp_settings(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(verify_token)
+):
+    """Retrieve personal SMTP configuration parameters flawlessly."""
+    user_id = current_user.get("sub")
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User mapping lost.")
+        
+    return {
+        "smtp_host": user.smtp_host,
+        "smtp_port": user.smtp_port,
+        "smtp_user": user.smtp_user,
+        "has_password": bool(user.smtp_password)
+    }
+
+@router.patch("/me/smtp", status_code=status.HTTP_200_OK)
+async def update_smtp_settings(
+    payload: SMTPSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(verify_token)
+):
+    """Update personal SMTP credentials for outbound hiring campaigns flawlessly."""
+    user_id = current_user.get("sub")
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User mapping lost.")
+        
+    if payload.smtp_host is not None:
+        user.smtp_host = payload.smtp_host
+    if payload.smtp_port is not None:
+        user.smtp_port = payload.smtp_port
+    if payload.smtp_user is not None:
+        user.smtp_user = payload.smtp_user
+    if payload.smtp_password is not None:
+        user.smtp_password = payload.smtp_password
+        
+    await db.commit()
+    return {"message": "SMTP parameters successfully synchronized."}
