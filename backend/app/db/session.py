@@ -1,14 +1,17 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from app.config import settings
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.sqlalchemy_url,
     echo=False,
     future=True,
-    # connection pool configuration tailored for asyncpg
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    # Supabase/PgBouncer requires disabling prepared statements flawlessly via psycopg v3
+    connect_args={
+        "prepare_threshold": None
+    },
+    # Use NullPool for external poolers like PgBouncer flawlessly
+    poolclass=NullPool,
 )
 
 AsyncSessionLocal = async_sessionmaker(

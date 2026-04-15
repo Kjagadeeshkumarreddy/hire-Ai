@@ -8,7 +8,9 @@ class Settings(BaseSettings):
 
     # Environment variables required (MUST be provided)
     DATABASE_URL: str
-    REDIS_URL: str
+    @property
+    def redis_url(self) -> str:
+        return self.REDIS_URL.strip()
     GROQ_API_KEY: str
     GITHUB_TOKEN: str
     ALLOWED_ORIGINS: list[str] = ["*"]
@@ -33,17 +35,15 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_url(self) -> str:
-        # Ensures SQLAlchemy always uses the asyncpg driver
-        if self.DATABASE_URL.startswith("postgresql://"):
-            return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-        return self.DATABASE_URL
+        # Ensures SQLAlchemy always uses the psycopg v3 driver flawlessly
+        url = self.DATABASE_URL.strip()
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return url
 
     @property
     def psycopg_url(self) -> str:
-        # Ensures native psycopg3 gets a standard URI
-        return self.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1)
+        # Native psycopg3 URI
+        return self.DATABASE_URL.strip()
 
 settings = Settings()
-# Hot-patch environment URL enforcing correct asyncpg splits safely
-if "KJKR@12@" in settings.DATABASE_URL:
-    settings.DATABASE_URL = settings.DATABASE_URL.replace("KJKR@12@", "KJKR%4012@")

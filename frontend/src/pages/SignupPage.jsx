@@ -26,8 +26,14 @@ const SignupPage = () => {
       await registerUser(formData);
 
       // Simulate an automatic login trace securely locking state validations
-      const mockToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mockTokenAuthRole";
-      setLogin(mockToken, { name: formData.full_name, role: formData.role, email: formData.email });
+      const mockAccess = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mockAccess";
+      const mockRefresh = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mockRefresh";
+      
+      setLogin(mockAccess, mockRefresh, { 
+        full_name: formData.full_name, 
+        role: formData.role, 
+        email: formData.email 
+      });
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.detail || "Structurally deficient parameters. Registration failed.");

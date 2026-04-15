@@ -82,7 +82,11 @@ pool = AsyncConnectionPool(
     conninfo=settings.psycopg_url,
     max_size=10,
     open=False,
-    kwargs={"autocommit": True, "row_factory": dict_row}
+    kwargs={
+        "autocommit": True, 
+        "row_factory": dict_row,
+        "prepare_threshold": None # Required for Supabase/PgBouncer transaction mode flawlessly
+    }
 )
 
 async def get_compiled_graph(conn):
