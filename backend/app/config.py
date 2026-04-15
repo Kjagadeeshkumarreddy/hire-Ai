@@ -8,9 +8,12 @@ class Settings(BaseSettings):
 
     # Environment variables required (MUST be provided)
     DATABASE_URL: str
+    REDIS_URL: str
+    
     @property
     def redis_url(self) -> str:
         return self.REDIS_URL.strip()
+        
     GROQ_API_KEY: str
     GITHUB_TOKEN: str
     ALLOWED_ORIGINS: list[str] = ["*"]
