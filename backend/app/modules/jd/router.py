@@ -266,65 +266,50 @@ async def get_jd_content(job_id: UUID, db: AsyncSession = Depends(get_db)):
 
 @router.delete("/{job_id}")
 async def delete_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Exhaustive deletion of a job and all its technical child mappings flawlessly."""
-    # 1. Fetch Job
+    """Fast cascading deletion of a job and all child records using batch SQL."""
+    from app.db.models import (
+        Candidate, Resume, Score, GitHubAnalysis,
+        InterviewQuestion, PipelineRun, AuditLog,
+        EmailLog, JDVersion, SavedOffer
+    )
+    from sqlalchemy import delete, text
+
+    # 1. Verify job exists
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
-    
-    # 2. Preparation: Fetch associated IDs to cleanup deeply nested children flawlessy
-    from app.modules.candidates.service import generate_bulk_email_draft, send_bulk_emails
-    from app.modules.jd import schemas
-    from app.db.models import (
-        Candidate, Resume, Score, GitHubAnalysis, 
-        InterviewQuestion, PipelineRun, AuditLog, 
-        EmailLog, JDVersion
-    )
-    from sqlalchemy import delete
-    
-    # Fetch candidates for this job
-    c_stmt = select(Candidate.id).where(Candidate.job_id == job_id)
-    c_res = await db.execute(c_stmt)
-    candidate_ids = [row[0] for row in c_res.all()]
-    
-    # Fetch pipeline runs for this job
-    p_stmt = select(PipelineRun.id).where(PipelineRun.job_id == job_id)
-    p_res = await db.execute(p_stmt)
-    pipeline_run_ids = [row[0] for row in p_res.all()]
 
-    # 3. Step-by-Step Sequence (Satisfying FK constraints from leaves to root flawlessy)
-    
-    # A. Delete Audit Logs (references Job, Candidate, and PipelineRun)
+    # 2. Build candidate subquery once (used by all child deletes)
+    candidate_sub = select(Candidate.id).where(Candidate.job_id == job_id).scalar_subquery()
+
+    # 3. Delete all child records in correct FK order (leaves → root)
+    # Group A: Records referencing candidates OR job (deepest children first)
     await db.execute(delete(AuditLog).where(
-        (AuditLog.job_id == job_id) | 
-        (AuditLog.candidate_id.in_(candidate_ids)) | 
-        (AuditLog.pipeline_run_id.in_(pipeline_run_ids))
+        (AuditLog.job_id == job_id) | (AuditLog.candidate_id.in_(candidate_sub))
     ))
-    
-    # B. Delete Pipeline Runs
-    await db.execute(delete(PipelineRun).where(PipelineRun.job_id == job_id))
-    
-    # C. Delete candidate-linked technical data
-    if candidate_ids:
-        await db.execute(delete(Resume).where(Resume.candidate_id.in_(candidate_ids)))
-        await db.execute(delete(GitHubAnalysis).where(GitHubAnalysis.candidate_id.in_(candidate_ids)))
-        await db.execute(delete(Score).where(Score.candidate_id.in_(candidate_ids)))
-        await db.execute(delete(InterviewQuestion).where(InterviewQuestion.candidate_id.in_(candidate_ids)))
-        await db.execute(delete(EmailLog).where(EmailLog.candidate_id.in_(candidate_ids)))
-        # Finally delete candidates
-        await db.execute(delete(Candidate).where(Candidate.id.in_(candidate_ids)))
+    await db.execute(delete(SavedOffer).where(SavedOffer.job_id == job_id))
+    await db.execute(delete(EmailLog).where(
+        (EmailLog.job_id == job_id) | (EmailLog.candidate_id.in_(candidate_sub))
+    ))
+    await db.execute(delete(InterviewQuestion).where(
+        (InterviewQuestion.job_id == job_id) | (InterviewQuestion.candidate_id.in_(candidate_sub))
+    ))
+    await db.execute(delete(Score).where(
+        (Score.job_id == job_id) | (Score.candidate_id.in_(candidate_sub))
+    ))
+    await db.execute(delete(GitHubAnalysis).where(GitHubAnalysis.candidate_id.in_(candidate_sub)))
+    await db.execute(delete(Resume).where(Resume.candidate_id.in_(candidate_sub)))
 
-    # D. Delete Job-linked logs and JD versions
-    await db.execute(delete(EmailLog).where(EmailLog.job_id == job_id))
-    await db.execute(delete(InterviewQuestion).where(InterviewQuestion.job_id == job_id))
-    await db.execute(delete(Score).where(Score.job_id == job_id))
+    # Group B: Pipeline runs, candidates, JD versions, then job
+    await db.execute(delete(PipelineRun).where(PipelineRun.job_id == job_id))
+    await db.execute(delete(Candidate).where(Candidate.job_id == job_id))
     await db.execute(delete(JDVersion).where(JDVersion.job_id == job_id))
-    
-    # 4. Finish by deleting the Job record itself
+
+    # 4. Delete the job itself
     await db.delete(job)
     await db.commit()
-    
-    return {"status": "success", "message": f"Job {job_id} and all related technical data purged flawlessly."}
+
+    return {"status": "success", "message": f"Job {job_id} deleted successfully."}
 
 @router.get("/{job_id}/versions", response_model=List[JDVersionResponse])
 async def list_jd_versions(job_id: UUID, db: AsyncSession = Depends(get_db)):
@@ -334,14 +319,74 @@ async def list_jd_versions(job_id: UUID, db: AsyncSession = Depends(get_db)):
     return res.scalars().all()
 
 @router.patch("/{job_id}/versions/{version}/approve")
-async def approve_jd(job_id: UUID, version: int, db: AsyncSession = Depends(get_db)):
-    """HITL Approve JD."""
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+async def approve_jd(
+    job_id: UUID, version: int,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(verify_token)
+):
+    """HITL Approve a JD version, marking it as the active approved version."""
+    stmt = select(JDVersion).where(
+        JDVersion.job_id == job_id,
+        JDVersion.version == version
+    )
+    result = await db.execute(stmt)
+    jd_v = result.scalars().first()
+    if not jd_v:
+        raise HTTPException(status_code=404, detail="JD version not found")
+
+    if jd_v.status == "approved":
+        return {"status": "already_approved", "version": version}
+
+    from sqlalchemy.sql import func as sql_func
+    jd_v.status = "approved"
+    jd_v.approved_by = UUID(user.get("sub"))
+    jd_v.approved_at = sql_func.now()
+
+    # Log audit
+    audit = AuditLog(
+        job_id=job_id,
+        user_id=UUID(user.get("sub")),
+        action="jd_approved",
+        entity_type="jd_version",
+        entity_id=jd_v.id,
+        details={"version": version}
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {"status": "approved", "job_id": str(job_id), "version": version}
 
 @router.patch("/{job_id}/versions/{version}/reject")
-async def reject_jd(job_id: UUID, version: int, db: AsyncSession = Depends(get_db)):
-    """HITL Reject JD."""
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+async def reject_jd(
+    job_id: UUID, version: int,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(verify_token)
+):
+    """HITL Reject a JD version, requiring re-generation."""
+    stmt = select(JDVersion).where(
+        JDVersion.job_id == job_id,
+        JDVersion.version == version
+    )
+    result = await db.execute(stmt)
+    jd_v = result.scalars().first()
+    if not jd_v:
+        raise HTTPException(status_code=404, detail="JD version not found")
+
+    jd_v.status = "rejected"
+
+    # Log audit
+    audit = AuditLog(
+        job_id=job_id,
+        user_id=UUID(user.get("sub")),
+        action="jd_rejected",
+        entity_type="jd_version",
+        entity_id=jd_v.id,
+        details={"version": version}
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {"status": "rejected", "job_id": str(job_id), "version": version}
 # --- Bulk Outreach Campaign Endpoints ---
 
 from .schemas import (
@@ -364,10 +409,13 @@ async def bulk_send_emails(
     id: UUID,
     subject: str = Body(...),
     body: str = Body(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(verify_token)
 ):
     """Blast the final approved template to all shortlisted candidates for this job."""
-    return await send_bulk_emails(id, subject, body, db)
+    # Passing the logged-in user's ID to fetch correct SMTP creds flawlessly
+    user_id = UUID(user.get("sub"))
+    return await send_bulk_emails(id, subject, body, db, user_id=user_id)
 from app.modules.candidates.service import generate_bulk_email_draft, send_bulk_emails, generate_offer_template, refine_offer_template
 from app.modules.candidates.schemas import OfferRefineRequest
 

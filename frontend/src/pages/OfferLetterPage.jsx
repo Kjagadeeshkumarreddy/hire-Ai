@@ -3,7 +3,7 @@ import {
    FileText, Download, Send, UserCheck, ShieldCheck, 
    Loader2, CheckCircle2, Sparkles, Layout, Eye, 
    Edit3, ChevronLeft, ChevronRight, Users, MessageSquare,
-   Wand2, Zap, RotateCcw
+   Wand2, Zap, RotateCcw, X, Clock
 } from 'lucide-react';
 import { JobSelector } from '../components/common/JobSelector';
 import { useCandidateList } from '../hooks/useCandidates';
@@ -28,6 +28,11 @@ const OfferLetterPage = () => {
    
    const [sending, setSending] = useState(false);
    const [sendSuccess, setSendSuccess] = useState(false);
+
+   // Vault State flawlessy
+   const [isVaultOpen, setIsVaultOpen] = useState(false);
+   const [savedOffers, setSavedOffers] = useState([]);
+   const [saving, setSaving] = useState(false);
 
    // Filter jobs to find offer roles
    const offerJobs = jobs.filter(j => j.status === 'offer');
@@ -98,6 +103,46 @@ const OfferLetterPage = () => {
       } finally {
          setSending(false);
       }
+   };
+
+   const handleSave = async () => {
+      if (!selectedCand || !activeJobId || !offerHtml) return;
+      setSaving(true);
+      try {
+         await candidateApi.saveOfferProgress(selectedCand.id, {
+            subject: `Official Employment Offer: ${sanitizeTitle(activeJob?.title)}`,
+            content: offerHtml,
+            job_id: activeJobId
+         });
+         alert("Draft saved to the Vault flawlessly.");
+         fetchSavedOffers();
+      } catch (err) {
+         console.error("Save failed", err);
+         alert("Could not persist draft to the secure node.");
+      } finally {
+         setSaving(false);
+      }
+   };
+
+   const fetchSavedOffers = async () => {
+      try {
+         const data = await candidateApi.getSavedOffers();
+         setSavedOffers(data);
+      } catch (err) {
+         console.error("Vault fetch failed", err);
+      }
+   };
+
+   useEffect(() => {
+      fetchSavedOffers();
+   }, []);
+
+   const loadSavedOffer = (offer) => {
+      setOfferHtml(offer.content);
+      setIsVaultOpen(false);
+      // Attempt to find and select the candidate flawlessly
+      const cand = candidates.find(c => c.id === offer.candidate_id);
+      if (cand) setSelectedCand(cand);
    };
 
    const toggleAll = () => {
@@ -173,6 +218,14 @@ const OfferLetterPage = () => {
                      filterType="offer"
                   />
                </div>
+               <div className="h-8 w-px bg-white/5 mx-2 shrink-0" />
+               <button 
+                  onClick={() => setIsVaultOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white hover:bg-white/10 transition-all text-[11px] font-black uppercase tracking-widest shrink-0"
+               >
+                  <RotateCcw size={14} className="text-primary-500" />
+                  Saved Offers
+               </button>
                <div className="h-8 w-px bg-white/5 mx-2 shrink-0" />
                <button className="px-6 py-2.5 bg-primary-500 text-white rounded-xl font-black text-[11px] uppercase tracking-widest shadow-lg shadow-primary-500/20 hover:scale-105 active:scale-95 transition-all shrink-0">
                   Finalize Dossier
@@ -349,36 +402,102 @@ const OfferLetterPage = () => {
                      )}
                   </div>
 
-                  <div className="p-8 border-t border-white/5 bg-black/20 flex gap-4 relative z-10">
-                     <button 
-                        disabled={!selectedCand || loadingTemplate || !offerHtml}
-                        className="flex-1 py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
-                     >
-                        <Download size={14} /> Local Export (PDF)
-                     </button>
+                   <div className="p-8 border-t border-white/5 bg-black/20 flex gap-4 relative z-10">
                       <button 
-                         onClick={handleRelease}
-                         disabled={(checkedIds.size === 0 && !selectedCand) || loadingTemplate || !offerHtml || sending}
-                         className={`flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-30 ${
-                            sendSuccess 
-                               ? 'bg-green-500 text-white shadow-green-500/20' 
-                               : 'bg-primary-500 text-white shadow-primary-500/20 hover:scale-[1.02]'
-                         }`}
+                         onClick={handleSave}
+                         disabled={!selectedCand || loadingTemplate || !offerHtml || saving}
+                         className="flex-1 py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
                       >
-                         {sending ? <Loader2 size={14} className="animate-spin" /> : sendSuccess ? <CheckCircle2 size={14} /> : <Send size={14} />}
-                         {sending 
-                            ? (checkedIds.size > 1 ? `Issuing ${checkedIds.size}...` : 'Dispatching...') 
-                            : sendSuccess 
-                               ? 'Dossier(s) Released' 
-                               : checkedIds.size > 1 
-                                  ? `Batch Release (${checkedIds.size})`
-                                  : 'Release Electronically'
-                         }
+                         {saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} 
+                         {saving ? 'Saving...' : 'Save Progress'}
                       </button>
-                  </div>
+                      <button 
+                         disabled={!selectedCand || loadingTemplate || !offerHtml}
+                         className="flex-1 py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
+                      >
+                         <Download size={14} /> Local Export (PDF)
+                      </button>
+                       <button 
+                          onClick={handleRelease}
+                          disabled={(checkedIds.size === 0 && !selectedCand) || loadingTemplate || !offerHtml || sending}
+                          className={`flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-30 ${
+                             sendSuccess 
+                                ? 'bg-green-500 text-white shadow-green-500/20' 
+                                : 'bg-primary-500 text-white shadow-primary-500/20 hover:scale-[1.02]'
+                          }`}
+                       >
+                          {sending ? <Loader2 size={14} className="animate-spin" /> : sendSuccess ? <CheckCircle2 size={14} /> : <Send size={14} />}
+                          {sending 
+                             ? (checkedIds.size > 1 ? `Issuing ${checkedIds.size}...` : 'Dispatching...') 
+                             : sendSuccess 
+                                ? 'Dossier(s) Released' 
+                                : checkedIds.size > 1 
+                                   ? `Batch Release (${checkedIds.size})`
+                                   : 'Release Electronically'
+                          }
+                       </button>
+                   </div>
                </section>
             </div>
          </main>
+
+         {/* Offer Vault Modal flawlessly */}
+         {isVaultOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-end p-0 bg-black/60 backdrop-blur-md">
+               <div className="w-[500px] h-full bg-[#0A0A0B] border-l border-white/10 shadow-2xl animate-slide-right flex flex-col">
+                  <div className="p-8 border-b border-white/5 flex items-center justify-between bg-black/20">
+                     <div className="flex items-center gap-3">
+                        <div className="p-2 bg-primary-500/10 rounded-lg text-primary-500">
+                           <RotateCcw size={20} />
+                        </div>
+                        <h2 className="text-xl font-black text-white uppercase tracking-tight">Offer Vault</h2>
+                     </div>
+                     <button onClick={() => setIsVaultOpen(false)} className="p-2 hover:bg-white/5 rounded-full text-text-muted hover:text-white transition-all">
+                        <X size={24} />
+                     </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                     {savedOffers.length > 0 ? (
+                        savedOffers.map(offer => (
+                           <div key={offer.id} className="p-6 rounded-[24px] bg-white/[0.02] border border-white/5 hover:border-primary-500/30 transition-all group relative overflow-hidden">
+                              <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                 <Sparkles size={16} className="text-primary-500" />
+                              </div>
+                              <div className="flex items-center gap-4 mb-4">
+                                 <div className="w-10 h-10 rounded-2xl bg-primary-500/20 flex items-center justify-center text-primary-500 font-black">
+                                    {offer.candidate_name?.charAt(0)}
+                                 </div>
+                                 <div>
+                                    <h3 className="font-bold text-white leading-tight">{offer.candidate_name}</h3>
+                                    <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">{offer.job_title}</p>
+                                 </div>
+                              </div>
+                              <div className="space-y-2 mb-6">
+                                 <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                                    <Clock size={12} />
+                                    <span>Saved on {new Date(offer.created_at).toLocaleString()}</span>
+                                 </div>
+                              </div>
+                              <button 
+                                 onClick={() => loadSavedOffer(offer)}
+                                 className="w-full py-3 bg-white/5 text-white hover:bg-primary-500 rounded-xl font-black uppercase tracking-widest text-[9px] transition-all"
+                               >
+                                 Load Draft flawlessly
+                               </button>
+                           </div>
+                        ))
+                     ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
+                           <MessageSquare size={48} className="mb-4" />
+                           <p className="font-bold">The Vault is empty.</p>
+                           <p className="text-xs">Save progress on an offer letter to see it here.</p>
+                        </div>
+                     )}
+                  </div>
+               </div>
+            </div>
+         )}
 
          {/* Local Styles for Personalization Node */}
          <style>{`

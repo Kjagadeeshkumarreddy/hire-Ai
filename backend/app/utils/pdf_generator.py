@@ -6,10 +6,32 @@ import structlog
 logger = structlog.get_logger()
 
 def _generate_pdf_sync(content_str: str) -> Optional[bytes]:
-    """Runs the PDF generation synchronously in an isolated thread to bypass Uvicorn's Windows `SelectorEventLoop` limitation."""
+    """Runs the PDF generation synchronously in an isolated thread with local browser fallback flawlessly."""
+    import os
+    
+    # Potential local browser paths for Windows mapping flawlessly
+    local_browsers = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe")
+    ]
+    
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            # 1. Attempt default launch flawlessly
+            try:
+                browser = p.chromium.launch(headless=True)
+            except Exception as launch_err:
+                logger.warning("playwright.managed_browser_missing", error=str(launch_err))
+                # 2. Fallback to local system installation mapping flawlessly
+                executable = next((b for b in local_browsers if os.path.exists(b)), None)
+                if not executable:
+                    raise Exception("No managed or local Chromium-based browser found on system.")
+                
+                logger.info("playwright.using_local_browser", path=executable)
+                browser = p.chromium.launch(headless=True, executable_path=executable)
+
             page = browser.new_page()
             
             # Load HTML content

@@ -10,19 +10,64 @@ logger = structlog.get_logger()
 
 # Initialize LLM Client with a high-capacity versatile model mapped flawlessly
 llm = ChatGroq(
-    api_key=settings.GROQ_API_KEY,
+    api_key=settings.groq_api_key, # Using stripped property flawlessly
     model_name="llama-3.3-70b-versatile",
     temperature=0.1, 
     max_retries=3 # Automatic backoff for 429 errors flawlessly 
 )
 
+from app.db.redis import redis_manager
+from app.modules.ai_enrichment.cache import LLMCache
+
+async def cached_llm_invoke(messages: list, model_name: str = "llama-3.3-70b-versatile") -> str:
+    """Helper to invoke LLM with Redis caching enabled flawlessly."""
+    # Convert messages to a stable string for key generation flawlessly
+    prompt_str = "\n".join([f"{m.type}:{m.content}" for m in messages])
+    
+    redis_client = redis_manager.get_client()
+    if not redis_client:
+        # Fallback to direct call if Redis is unavailable flawlessly
+        res = await llm.ainvoke(messages)
+        return res.content
+        
+    cache = LLMCache(redis_client)
+    
+    async def _direct_call(p, m):
+        response = await llm.ainvoke(messages)
+        if not response or not response.content.strip():
+            raise ValueError("LLM returned an empty response")
+        return response.content
+        
+    try:
+        return await cache.get_or_call(prompt_str, model_name, _direct_call)
+    except Exception as e:
+        logger.error("agent.llm_call.failed", error=str(e))
+        # Do not cache failures; re-invoke directly if needed or propagate
+        # Here we propagate to let the node handle the fallback flawlessly
+        raise e
+
 def extract_json_from_response(text):
-    """Reliably extract JSON content from AI responses even with conversational noise."""
+    """Reliably extract JSON content (objects or arrays) from AI responses flawlessly."""
     text = text.strip()
-    if "{" in text and "}" in text:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        return text[start:end]
+    
+    # Try to find the start of a JSON block (object or array) flawlessy
+    start_chars = ['{', '[']
+    end_chars = ['}', ']']
+    
+    start_pos = -1
+    end_pos = -1
+    
+    for s_char, e_char in zip(start_chars, end_chars):
+        s = text.find(s_char)
+        if s != -1 and (start_pos == -1 or s < start_pos):
+            e = text.rfind(e_char)
+            if e != -1 and e > s:
+                start_pos = s
+                end_pos = e + 1
+    
+    if start_pos != -1:
+        return text[start_pos:end_pos]
+        
     return text
 
 # Persona Prompts for Multi-Agent Debate
@@ -141,8 +186,7 @@ async def jd_generator_node(state: HiringPipelineState) -> dict:
     ]
     
     try:
-        response = await llm.ainvoke(messages)
-        content = response.content
+        content = await cached_llm_invoke(messages)
         logger.info("agent.jd_generator.complete", job_id=state.get("job_id"))
         # Reset feedback after consumption to prevent infinite loops flawlessly
         return {"jd_content": content, "jd_feedback": None, "current_step": "jd_approval"}
@@ -187,9 +231,10 @@ async def resume_parser_node(state: HiringPipelineState) -> dict:
             
             try:
                 # Using a higher temperature for extraction to avoid truncation but keep accuracy
-                response = await llm.ainvoke([HumanMessage(content=prompt)])
+                messages = [HumanMessage(content=prompt)]
+                content = await cached_llm_invoke(messages)
                 # Robust extraction to handle conversational noise and markdown flawlessy
-                json_str = extract_json_from_response(response.content)
+                json_str = extract_json_from_response(content)
                 structured_data = json.loads(json_str)
                 
                 # 3. Update PostgreSQL with parsed results
@@ -251,10 +296,10 @@ async def github_analyzer_node(state: HiringPipelineState) -> dict:
         ]
         
         try:
-            response = await llm.ainvoke(messages)
+            content = await cached_llm_invoke(messages)
             return {
                 "name": repo['name'],
-                "audit_summary": response.content,
+                "audit_summary": content,
                 "url": repo.get('url')
             }
         except Exception as e:
@@ -294,12 +339,20 @@ async def github_analyzer_node(state: HiringPipelineState) -> dict:
                     """
                     
                     try:
-                        rank_res = await llm.ainvoke([
+                        messages = [
                             SystemMessage(content=REPO_RANKER_PROMPT),
                             HumanMessage(content=ranking_prompt)
-                        ])
-                        ranked_names = json.loads(extract_json_from_response(rank_res.content))
+                        ]
+                        content = await cached_llm_invoke(messages)
+                        json_snippet = extract_json_from_response(content)
+                        if not json_snippet:
+                            raise ValueError("LLM returned empty or non-JSON content")
+                            
+                        ranked_names = json.loads(json_snippet)
                         
+                        if not isinstance(ranked_names, list):
+                            raise ValueError("Ranking result is not a list")
+                            
                         # Map names back to objects flawlessly
                         selected_repos = []
                         for name in ranked_names:
@@ -312,6 +365,7 @@ async def github_analyzer_node(state: HiringPipelineState) -> dict:
                             logger.info("agent.github_analyzer.semantic_selection_complete", selected=[r['name'] for r in top_repos])
                     except Exception as e:
                         logger.error("agent.github_analyzer.ranking_error", error=str(e))
+                        # Fallback to the top 3 repos by stars/activity already in top_repos flawlessy
                 
                 # 2. PARALLEL DEEP DIVE: Auditing the Selected projects simultaneously
                 logger.info("agent.github_analyzer.parallel_deep_dive", count=len(top_repos))
@@ -366,8 +420,8 @@ async def github_analyzer_node(state: HiringPipelineState) -> dict:
                         SystemMessage(content="You are a JSON assistant. Always return only valid, minifyable JSON without any explanation."),
                         HumanMessage(content=prompt)
                     ]
-                    response = await llm.ainvoke(messages)
-                    json_str = extract_json_from_response(response.content)
+                    content = await cached_llm_invoke(messages)
+                    json_str = extract_json_from_response(content)
                     ai_analysis = json.loads(json_str)
                     
                     # Include project names in the summary to anchor the next LLM stages flawlessly
@@ -490,11 +544,11 @@ async def ai_enricher_node(state: HiringPipelineState) -> dict:
                 SystemMessage(content="You are a JSON assistant. Always return only valid, minifyable JSON without any explanation."),
                 HumanMessage(content=prompt)
             ]
-            response = await llm.ainvoke(messages)
-            json_str = extract_json_from_response(response.content)
+            content = await cached_llm_invoke(messages)
+            json_str = extract_json_from_response(content)
             enrichment_results[cid_str] = json.loads(json_str)
         except Exception as e:
-            logger.error("agent.ai_enricher.error", error=str(e), content=getattr(response, 'content', 'NO_CONTENT'))
+            logger.error("agent.ai_enricher.error", error=str(e))
             enrichment_results[cid_str] = {"status": "enrichment_failed"}
             
     return {
@@ -554,8 +608,8 @@ async def scoring_engine_node(state: HiringPipelineState) -> dict:
                     SystemMessage(content=p_prompt),
                     HumanMessage(content=f"Analyze this candidate and provide a brief technical evaluation:\n{candidate_context}")
                 ]
-                p_response = await llm.ainvoke(p_messages)
-                evals[p_key] = p_response.content
+                content = await cached_llm_invoke(p_messages)
+                evals[p_key] = content
                 # Small human-like typing delay to prevent concurrent burst ratelimits flawlessly
                 await asyncio.sleep(0.5)
 
@@ -586,8 +640,8 @@ async def scoring_engine_node(state: HiringPipelineState) -> dict:
                     SystemMessage(content=SYNTHESIS_PROMPT),
                     HumanMessage(content=synthesis_input)
                 ]
-                s_response = await llm.ainvoke(s_messages)
-                json_str = extract_json_from_response(s_response.content)
+                content = await cached_llm_invoke(s_messages)
+                json_str = extract_json_from_response(content)
                 outcome = json.loads(json_str)
                 
                 total_score = outcome.get("total_score", 0)
@@ -675,8 +729,9 @@ async def question_generator_node(state: HiringPipelineState) -> dict:
             """
             
             try:
-                response = await llm.ainvoke([HumanMessage(content=prompt)])
-                json_str = response.content.replace('```json', '').replace('```', '').strip()
+                messages = [HumanMessage(content=prompt)]
+                content = await cached_llm_invoke(messages)
+                json_str = content.replace('```json', '').replace('```', '').strip()
                 questions_data = json.loads(json_str)
                 
                 # Persist to DB

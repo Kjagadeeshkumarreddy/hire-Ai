@@ -34,18 +34,23 @@ def ensure_db_exists():
     except Exception as e:
         logger.error("database.creation_failed", error=str(e))
 
-async def init_models():
-    """ create all tables defined in models flawlessly. """
-    try:
-        async with engine.begin() as conn:
-            # This creates all tables if they don't exist
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("database.schema_initialized")
-    except Exception as e:
-        logger.error("database.schema_initialization_failed", error=str(e))
-        raise
+async def init_models(max_retries=3):
+    """ create all tables defined in models, with retry for transient connection drops. """
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("database.schema_initialized")
+            return
+        except Exception as e:
+            logger.warning("database.schema_init_retry", attempt=attempt, error=str(e))
+            if attempt == max_retries:
+                logger.error("database.schema_initialization_failed", error=str(e))
+                raise
+            await asyncio.sleep(2 * attempt)  # Backoff: 2s, 4s, 6s
 
 async def setup_database():
     """ entry point for database setup on startup. """
     ensure_db_exists()
     await init_models()
+

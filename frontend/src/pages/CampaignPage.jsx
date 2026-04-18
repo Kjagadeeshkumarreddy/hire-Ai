@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Sparkles, Send, Loader2, RotateCcw, MessageSquare, CheckCircle2, Users, Wand2, Terminal, Mail, Info, ArrowLeft, Layout, Zap, ChevronDown } from 'lucide-react';
 import axios from 'axios';
+import apiClient from '../api/client';
 import { useJobList } from '../hooks/useJD';
 import { JobSelector } from '../components/common/JobSelector';
 
@@ -27,7 +28,7 @@ const CampaignPage = () => {
     
     setLoading(true);
     try {
-      const response = await axios.post(`http://localhost:8000/api/v1/jd/${selectedJobId}/bulk-email-draft`, {
+      const response = await apiClient.post(`/jd/${selectedJobId}/bulk-email-draft`, {
         adjustments: feedback,
         previous_content: feedback ? draft.body : null
       });
@@ -66,7 +67,7 @@ const CampaignPage = () => {
     if (!isValidUUID(selectedJobId)) return;
     setSending(true);
     try {
-      const res = await axios.post(`http://localhost:8000/api/v1/jd/${selectedJobId}/bulk-send`, {
+      const res = await apiClient.post(`/jd/${selectedJobId}/bulk-send`, {
         subject: draft.subject,
         body: draft.body
       });

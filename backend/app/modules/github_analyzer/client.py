@@ -1,14 +1,15 @@
 import httpx
 import structlog
 from app.config import settings
+from app.db.redis import redis_manager
+from .rate_limiter import GitHubRateLimiter
 
 logger = structlog.get_logger()
 
 class GitHubClient:
     def __init__(self, token: str = None):
         # Always prioritize the latest environment variable to avoid uvicorn caching issues
-        import os
-        self.token = (os.getenv("GITHUB_TOKEN") or settings.GITHUB_TOKEN or "").strip()
+        self.token = settings.github_token # Using stripped property flawlessly
         
         logger.debug("github.client.init", 
                      token_prefix=self.token[:4] if self.token else "NONE",
@@ -21,11 +22,19 @@ class GitHubClient:
             "User-Agent": "AI-Hiring-Platform/1.0",
             "X-GitHub-Api-Version": "2022-11-28"
         }
+        
+        # Initialize Rate Limiter with global Redis client flawlessly
+        self.redis = redis_manager.get_client()
+        self.limiter = GitHubRateLimiter(self.redis) if self.redis else None
     
 
     async def get_user_repositories(self, username: str):
         """Fetch all public repositories for a given user."""
         logger.info("github.client.fetch_repos", username=username)
+        
+        if self.limiter:
+            await self.limiter.wait_if_needed()
+            
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(
@@ -33,6 +42,10 @@ class GitHubClient:
                     headers=self.headers,
                     params={"sort": "updated", "per_page": 100}
                 )
+                
+                if self.limiter:
+                    await self.limiter.update_from_headers(response.headers)
+                    
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
@@ -47,12 +60,19 @@ class GitHubClient:
 
     async def get_repo_details(self, username: str, repo_name: str):
         """Fetch specific details for a repository."""
+        if self.limiter:
+            await self.limiter.wait_if_needed()
+            
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(
                     f"{self.base_url}/repos/{username}/{repo_name}",
                     headers=self.headers
                 )
+                
+                if self.limiter:
+                    await self.limiter.update_from_headers(response.headers)
+                    
                 response.raise_for_status()
                 return response.json()
             except Exception:
@@ -60,12 +80,19 @@ class GitHubClient:
 
     async def get_repo_readme(self, username: str, repo_name: str):
         """Fetch the README content for a repository."""
+        if self.limiter:
+            await self.limiter.wait_if_needed()
+            
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(
                     f"{self.base_url}/repos/{username}/{repo_name}/readme",
                     headers=self.headers
                 )
+                
+                if self.limiter:
+                    await self.limiter.update_from_headers(response.headers)
+                    
                 response.raise_for_status()
                 data = response.json()
                 import base64

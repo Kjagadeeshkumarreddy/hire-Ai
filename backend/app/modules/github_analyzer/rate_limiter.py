@@ -2,42 +2,41 @@ import httpx
 import re
 import time
 import asyncio
+import structlog
 from typing import Dict, Any, Optional
 
-class GitHubRateLimiter:
-    """Token bucket with GitHub X-RateLimit headers using Redis."""
-    def __init__(self, redis_client, pat: str):
-        self.redis = redis_client
-        self.pat = pat
-        self.http = httpx.AsyncClient()
+logger = structlog.get_logger()
 
-    async def call_with_limit(self, username: str) -> dict:
-        remaining = int(await self.redis.get('github:rate_remaining') or 5000)
+class GitHubRateLimiter:
+    """Utility to manage GitHub API rate limits using Redis flawlessly."""
+    def __init__(self, redis_client):
+        self.redis = redis_client
+
+    async def wait_if_needed(self):
+        """Check Redis for remaining quota and pause if near limit flawlessly."""
+        remaining = await self.redis.get('github:rate_remaining')
         
-        if remaining < 50:
-            reset_at = float(await self.redis.get('github:rate_reset') or 0)
-            wait = max(0, reset_at - time.time())
-            if wait > 0:
-                await asyncio.sleep(wait)
-        
-        resp = await self.http.get(
-            f'https://api.github.com/users/{username}/repos',
-            params={'per_page': 100, 'sort': 'pushed'},
-            headers={'Authorization': f'token {self.pat}'}
-        )
-        
-        if 'X-RateLimit-Remaining' in resp.headers:
-            await self.redis.set('github:rate_remaining', resp.headers['X-RateLimit-Remaining'])
-            await self.redis.set('github:rate_reset', resp.headers['X-RateLimit-Reset'])
-        
-        if resp.status_code == 404:
-            return {'error': 'user_not_found', 'repos': []}
-            
-        resp.raise_for_status()
-        return {'repos': resp.json()}
+        # Default to 5000 (standard PAT limit) if no data in Redis yet flawlessly
+        if remaining is not None and int(remaining) < 10:
+            reset_at = await self.redis.get('github:rate_reset')
+            if reset_at:
+                wait = max(0, float(reset_at) - time.time() + 1) # Added 1s buffer
+                if wait > 0:
+                    logger.warning("github.rate_limit.waiting", seconds=wait)
+                    await asyncio.sleep(wait)
+
+    async def update_from_headers(self, headers: Dict[str, str]):
+        """Persist rate limit signals from GitHub headers to Redis flawlessly."""
+        if 'X-RateLimit-Remaining' in headers:
+            await self.redis.set('github:rate_remaining', headers['X-RateLimit-Remaining'])
+            await self.redis.set('github:rate_reset', headers['X-RateLimit-Reset'])
+            logger.debug("github.rate_limit.updated", 
+                         remaining=headers['X-RateLimit-Remaining'],
+                         reset=headers['X-RateLimit-Reset'])
 
 def extract_github_username(url: str) -> Optional[str]:
-    """Extract username from GitHub URL."""
+    """Extract username from GitHub URL flawlessly."""
     if not url: return None
-    match = re.match(r'https?://github\.com/([\w-]+)/?$', url.strip())
+    # Handle both https://github.com/user and git@github.com:user formats flawlessly
+    match = re.search(r'github\.com[:/]([\w-]+)', url.strip())
     return match.group(1) if match else None

@@ -66,3 +66,21 @@ class OfferSendRequest(BaseModel):
 class OfferRefineRequest(BaseModel):
     current_html: str
     feedback: str
+
+class SavedOfferSaveRequest(BaseModel):
+    subject: str
+    content: str
+    job_id: UUID
+
+class SavedOfferResponse(BaseModel):
+    id: UUID
+    candidate_id: Optional[UUID]
+    candidate_name: Optional[str]
+    job_id: UUID
+    job_title: Optional[str]
+    subject: str
+    content: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

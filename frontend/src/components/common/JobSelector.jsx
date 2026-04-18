@@ -61,7 +61,7 @@ export const JobSelector = ({ activeJobId, onSelect, filterType = 'all', showAll
         {filteredJobs.length === 0 && !isLoading && (
           <div className="p-6 text-center">
             <p className="text-xs text-text-muted mb-2">No active jobs found.</p>
-            <a href="/jd-builder" className="text-xs text-primary-500 font-bold hover:underline">Create First JD →</a>
+            <a href="/jd" className="text-xs text-primary-500 font-bold hover:underline">Create First JD →</a>
           </div>
         )}
         

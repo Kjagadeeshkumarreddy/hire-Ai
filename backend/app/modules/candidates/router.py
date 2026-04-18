@@ -20,9 +20,11 @@ from .schemas import (
     CandidateSummary,
     EmailDraftResponse,
     EmailSendRequest,
-    OfferSendRequest
+    OfferSendRequest,
+    SavedOfferSaveRequest,
+    SavedOfferResponse
 )
-from app.db.models import Job, Candidate, Resume, Score, GitHubAnalysis, JDVersion, EmailLog
+from app.db.models import Job, Candidate, Resume, Score, GitHubAnalysis, JDVersion, EmailLog, SavedOffer
 from .service import generate_email_draft
 from app.core.mailer import send_email
 
@@ -87,17 +89,29 @@ async def upload_candidates(
             s = str(val).strip()
             return "" if s.lower() in ["nan", "none", "null", "undefined"] else s
 
-        # Create Candidate record
-        candidate = Candidate(
-            job_id=job_id,
-            full_name=full_name,
-            email=email,
-            phone=clean_val(row.get("Phone", "")),
-            github_username=clean_val(row.get("GitHub", "")),
-            linkedin_url=clean_val(row.get("LinkedIn", "")),
-            pipeline_status="uploaded"
-        )
-        db.add(candidate)
+        # Check if candidate exists for this job flawlessly to prevent duplicates
+        exist_stmt = select(Candidate).where(Candidate.job_id == job_id, Candidate.email == email)
+        exist_res = await db.execute(exist_stmt)
+        candidate = exist_res.scalar_one_or_none()
+        
+        if not candidate:
+            # Create new Candidate record flawlesly
+            candidate = Candidate(
+                job_id=job_id,
+                full_name=full_name,
+                email=email,
+                pipeline_status="uploaded"
+            )
+            db.add(candidate)
+        else:
+            # Refresh existing candidate mapping flawlessly
+            candidate.full_name = full_name
+            candidate.pipeline_status = "uploaded"
+
+        candidate.phone = clean_val(row.get("Phone", ""))
+        candidate.github_username = clean_val(row.get("GitHub", ""))
+        candidate.linkedin_url = clean_val(row.get("LinkedIn", ""))
+        
         await db.flush() 
         candidate_ids.append(str(candidate.id))
         
@@ -111,12 +125,21 @@ async def upload_candidates(
             result = ResumeParserService.parse_pdf_in_memory(pdf_bytes)
             raw_text = result.get("raw_text", "")
             
-        resume = Resume(
-            candidate_id=candidate.id,
-            raw_text=raw_text,
-            parsing_status="pending"
-        )
-        db.add(resume)
+        # Ensure Resume record is also idempotent flawlessly
+        resume_stmt = select(Resume).where(Resume.candidate_id == candidate.id)
+        resume_res = await db.execute(resume_stmt)
+        resume = resume_res.scalar_one_or_none()
+        
+        if not resume:
+            resume = Resume(
+                candidate_id=candidate.id,
+                raw_text=raw_text,
+                parsing_status="pending"
+            )
+            db.add(resume)
+        else:
+            resume.raw_text = raw_text
+            resume.parsing_status = "pending"
 
     # 4. Initialize Pipeline Run Tracking
     run_id = str(uuid.uuid4())
@@ -384,14 +407,33 @@ async def get_email_draft(candidate_id: UUID, db: AsyncSession = Depends(get_db)
     return await generate_email_draft(candidate_id, db)
 
 @router.post("/{candidate_id}/send-email")
-async def send_candidate_email(candidate_id: UUID, request: EmailSendRequest, db: AsyncSession = Depends(get_db)):
+async def send_candidate_email(
+    candidate_id: UUID, 
+    request: EmailSendRequest, 
+    db: AsyncSession = Depends(get_db),
+    user_payload: dict = Depends(verify_token)
+):
     """Send a reviewed email and log the transaction flawlessly."""
+    from app.db.models import User
+    
     candidate = await db.get(Candidate, candidate_id)
     if not candidate or not candidate.email:
         raise HTTPException(status_code=404, detail="Candidate email not found.")
     
-    # Send via SMTP
-    success = await send_email(candidate.email, request.subject, request.body)
+    # 0. Fetch Sender's SMTP Configuration from DB flawlessy
+    user_id = UUID(user_payload.get("sub"))
+    user = await db.get(User, user_id)
+    smtp_config = {}
+    if user:
+        smtp_config = {
+            "smtp_host": user.smtp_host,
+            "smtp_port": user.smtp_port,
+            "smtp_user": user.smtp_user,
+            "smtp_password": user.smtp_password
+        }
+    
+    # Send via SMTP flawlessy
+    success = await send_email(candidate.email, request.subject, request.body, smtp_config=smtp_config)
     
     if success:
         log = EmailLog(
@@ -449,15 +491,33 @@ async def promote(
     return await promote_candidates(resolved_id, candidate_ids, round_name, user_id, db, job_status=job_status)
 
 @router.post("/{candidate_id}/send-offer")
-async def send_offer_letter(candidate_id: UUID, request: OfferSendRequest, db: AsyncSession = Depends(get_db)):
+async def send_offer_letter(
+    candidate_id: UUID, 
+    request: OfferSendRequest, 
+    db: AsyncSession = Depends(get_db),
+    user_payload: dict = Depends(verify_token)
+):
     """Generate a PDF dossier and release electronically to the candidate flawlessly."""
     from app.utils.pdf_generator import generate_pdf
     from app.core.mailer import send_email
+    from app.db.models import User
     
     # 1. Fetch Candidate
     candidate = await db.get(Candidate, candidate_id)
     if not candidate or not candidate.email:
         raise HTTPException(status_code=404, detail="Candidate or email mapping not found.")
+
+    # 0. Fetch Sender's SMTP Configuration from DB flawlessy
+    user_id = UUID(user_payload.get("sub"))
+    user = await db.get(User, user_id)
+    smtp_config = {}
+    if user:
+        smtp_config = {
+            "smtp_host": user.smtp_host,
+            "smtp_port": user.smtp_port,
+            "smtp_user": user.smtp_user,
+            "smtp_password": user.smtp_password
+        }
     
     # Fetch related Job for variables
     job = await db.get(Job, candidate.job_id)
@@ -479,13 +539,14 @@ async def send_offer_letter(candidate_id: UUID, request: OfferSendRequest, db: A
     if not pdf_bytes:
         raise HTTPException(status_code=500, detail="Failed to synthesize PDF dossier. Ensure Playwright browsers are installed.")
     
-    # 3. Release Electronically
+    # 3. Release Electronically flawlessy
     success = await send_email(
         to_email=candidate.email, 
         subject=request.subject, 
         html_body=f"Dear {candidate.full_name}, please find attached your official employment dossier.",
         attachment=pdf_bytes,
-        filename=f"Offer_Letter_{candidate.full_name.replace(' ', '_')}.pdf"
+        filename=f"Offer_Letter_{candidate.full_name.replace(' ', '_')}.pdf",
+        smtp_config=smtp_config
     )
     
     if success:
@@ -505,3 +566,69 @@ async def send_offer_letter(candidate_id: UUID, request: OfferSendRequest, db: A
         return {"status": "success", "message": "Electronic dossier released flawlessly."}
     else:
         raise HTTPException(status_code=500, detail="Failed to release dossier via electronic node.")
+
+@router.post("/{candidate_id}/offer/save")
+async def save_offer_letter(
+    candidate_id: UUID,
+    request: SavedOfferSaveRequest,
+    db: AsyncSession = Depends(get_db),
+    user_payload: dict = Depends(verify_token)
+):
+    """Save the progress of an offer letter draft flawlessly."""
+    user_id = UUID(user_payload.get("sub"))
+    
+    # Check if a saved offer already exists for this candidate/job combo flawlessly (idempotent save)
+    stmt = select(SavedOffer).where(
+        SavedOffer.candidate_id == candidate_id,
+        SavedOffer.job_id == request.job_id
+    )
+    res = await db.execute(stmt)
+    saved_offer = res.scalar_one_or_none()
+    
+    if not saved_offer:
+        saved_offer = SavedOffer(
+            candidate_id=candidate_id,
+            job_id=request.job_id,
+            created_by=user_id,
+            subject=request.subject,
+            content=request.content
+        )
+        db.add(saved_offer)
+    else:
+        saved_offer.subject = request.subject
+        saved_offer.content = request.content
+        saved_offer.created_by = user_id
+        
+    await db.commit()
+    return {"status": "success", "message": "Offer letter progress saved flawlessly."}
+
+@router.get("/offers/saved", response_model=List[SavedOfferResponse])
+async def list_saved_offers(
+    db: AsyncSession = Depends(get_db),
+    user_payload: dict = Depends(verify_token)
+):
+    """Retrieve all saved offer letter drafts mapping flawlessly to their candidates."""
+    user_id = UUID(user_payload.get("sub"))
+    
+    # Selecting with joinedload to fetch candidate names flawlessly
+    stmt = (
+        select(SavedOffer)
+        .options(joinedload(SavedOffer.candidate), joinedload(SavedOffer.job))
+        .where(SavedOffer.created_by == user_id)
+        .order_by(SavedOffer.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    offers = res.scalars().all()
+    
+    return [
+        SavedOfferResponse(
+            id=o.id,
+            candidate_id=o.candidate_id,
+            candidate_name=o.candidate.full_name if o.candidate else "General Template",
+            job_id=o.job_id,
+            job_title=o.job.title if o.job else "Unknown Role",
+            subject=o.subject,
+            content=o.content,
+            created_at=o.created_at
+        ) for o in offers
+    ]

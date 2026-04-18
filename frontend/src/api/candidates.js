@@ -77,5 +77,15 @@ export const candidateApi = {
   sendOfferLetter: async (candidateId, payload) => {
     const { data } = await apiClient.post(`/candidates/${candidateId}/send-offer`, payload);
     return data;
+  },
+  
+  saveOfferProgress: async (candidateId, payload) => {
+    const { data } = await apiClient.post(`/candidates/${candidateId}/offer/save`, payload);
+    return data;
+  },
+
+  getSavedOffers: async () => {
+    const { data } = await apiClient.get('/candidates/offers/saved');
+    return data;
   }
 };

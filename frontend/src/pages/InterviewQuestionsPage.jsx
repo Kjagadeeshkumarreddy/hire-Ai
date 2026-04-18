@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
    MessageSquare, 
    BrainCircuit, 
@@ -37,6 +38,7 @@ const CategoryCard = ({ title, questions, icon: Icon, colorClass, delay }) => (
 );
 
 const InterviewQuestionsPage = () => {
+   const navigate = useNavigate();
    const { data: jobs = [] } = useJobList();
    const [activeJobId, setActiveJobId] = useState('default-job');
    const { data: candidates = [], isLoading: fetchingCands } = useCandidateList(activeJobId);
@@ -106,8 +108,13 @@ const InterviewQuestionsPage = () => {
          alert(`Successfully promoted to ${res.new_job_title}!`);
          setSelectedIds([]);
          setIsPromoteModalOpen(false);
-         // Refresh list to show new job flawlessly
-         window.location.reload();
+         
+         if (targetRound === "Generate Offer Letter") {
+            navigate('/offer-letter');
+         } else {
+            // Refresh list to show new job flawlessly
+            window.location.reload();
+         }
       } catch (err) {
          alert("Synthesis Error: Could not promote candidates to next lab.");
       } finally {

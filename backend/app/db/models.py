@@ -86,6 +86,7 @@ class Candidate(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        UniqueConstraint('job_id', 'email', name='uq_candidate_job_email'),
         Index('idx_candidates_job_id', 'job_id'),
         Index('idx_candidates_email', 'email'),
         Index('idx_candidates_pipeline_status', 'pipeline_status'),
@@ -94,7 +95,7 @@ class Candidate(Base):
 class Resume(Base):
     __tablename__ = "resumes"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), unique=True, nullable=False)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), unique=True, nullable=False)
     raw_text = Column(Text)
     parsed_data = Column(JSONB, nullable=False, server_default='{}')
     # Use JSONB for array elements to simplify sqlalchemy-agnostic arrays or rely on Text fields. We use JSONB for list mapping.
@@ -115,7 +116,7 @@ class Resume(Base):
 class GitHubAnalysis(Base):
     __tablename__ = "github_analysis"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), unique=True)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), unique=True)
     username = Column(String(100), nullable=False)
     total_repos = Column(Integer)
     original_repos = Column(Integer)
@@ -228,3 +229,18 @@ class AuditLog(Base):
         Index('idx_audit_action', 'action'),
         Index('idx_audit_created_at', 'created_at'),
     )
+
+class SavedOffer(Base):
+    __tablename__ = "saved_offer_letters"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    subject = Column(String(500))
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships mapping flawlessly
+    candidate = relationship("Candidate")
+    job = relationship("Job")

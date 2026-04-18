@@ -292,11 +292,26 @@ async def generate_interview_questions(candidate_id: UUID, db: AsyncSession) -> 
             "hard": ["Describe the most complex architectural challenge you solved in your featured projects.", "How would you optimize the performance of your most active repository?"]
         }
 
-async def send_bulk_emails(job_id: UUID, subject: str, body: str, db: AsyncSession):
+async def send_bulk_emails(job_id: UUID, subject: str, body: str, db: AsyncSession, user_id: UUID = None):
     """Blast the template to every shortlisted candidate for the job flawlessly."""
     import logging
+    from app.db.models import User
     _log = logging.getLogger("app.outreach")
     
+    # 0. Fetch Sender's SMTP Configuration from DB flawlessy
+    smtp_config = {}
+    if user_id:
+        user_stmt = select(User).where(User.id == user_id)
+        user_res = await db.execute(user_stmt)
+        user = user_res.scalar_one_or_none()
+        if user:
+            smtp_config = {
+                "smtp_host": user.smtp_host,
+                "smtp_port": user.smtp_port,
+                "smtp_user": user.smtp_user,
+                "smtp_password": user.smtp_password
+            }
+
     # Fetch job title for replacement
     job_stmt = select(Job).where(Job.id == job_id)
     job_res = await db.execute(job_stmt)
@@ -328,7 +343,8 @@ async def send_bulk_emails(job_id: UUID, subject: str, body: str, db: AsyncSessi
         p_body = p_body.replace("{{job_title}}", job_title).replace("{job_title}", job_title)
         
         try:
-            success = await send_email(cand.email, p_subject, p_body)
+            # Passing the user-specific SMTP config flawlessly
+            success = await send_email(cand.email, p_subject, p_body, smtp_config=smtp_config)
             if success:
                 log_entry = EmailLog(
                     candidate_id=cand.id,

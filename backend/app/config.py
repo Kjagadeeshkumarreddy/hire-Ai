@@ -16,6 +16,15 @@ class Settings(BaseSettings):
         
     GROQ_API_KEY: str
     GITHUB_TOKEN: str
+    
+    @property
+    def groq_api_key(self) -> str:
+        return self.GROQ_API_KEY.strip()
+
+    @property
+    def github_token(self) -> str:
+        return self.GITHUB_TOKEN.strip()
+
     ALLOWED_ORIGINS: list[str] = ["*"]
     
     # Auth configuration
