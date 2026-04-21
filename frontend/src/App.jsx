@@ -13,6 +13,8 @@ import InterviewQuestionsPage from './pages/InterviewQuestionsPage';
 import OfferLetterPage from './pages/OfferLetterPage';
 import AuditLogPage from './pages/AuditLogPage';
 import SettingsPage from './pages/SettingsPage';
+import StudentDashboard from './pages/StudentDashboard';
+import StudentHistoryPage from './pages/StudentHistoryPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import { useAuthStore } from './stores/authStore';
@@ -31,6 +33,12 @@ import ShortlistedCandidatesPage from './pages/ShortlistedCandidatesPage';
 
 import CampaignPage from './pages/CampaignPage';
 
+const RoleRedirect = () => {
+  const user = useAuthStore(state => state.user);
+  if (user?.role === 'student') return <Navigate to="/student" replace />;
+  return <DashboardPage />;
+};
+
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
@@ -46,7 +54,11 @@ const App = () => {
               <AppShell />
             </ProtectedRoute>
           }>
-            <Route index element={<DashboardPage />} />
+            <Route index element={
+              <RoleRedirect />
+            } />
+            <Route path="student" element={<StudentDashboard />} />
+            <Route path="student/history" element={<StudentHistoryPage />} />
             <Route path="jd" element={<JDBuilderPage />} />
             <Route path="candidates" element={<CandidateDashboard />} />
             <Route path="candidates/:id" element={<CandidateDetailPage />} />

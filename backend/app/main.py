@@ -84,6 +84,7 @@ def create_app() -> FastAPI:
     from app.modules.email.router import router as email_router
     from app.modules.audit.router import router as audit_router
     from app.modules.auth.router import router as auth_router
+    from app.modules.students.router import router as students_router
     
     app.include_router(auth_router, prefix=settings.API_V1_STR)
     app.include_router(jd_router, prefix=settings.API_V1_STR)
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(interview_router, prefix=settings.API_V1_STR)
     app.include_router(email_router, prefix=settings.API_V1_STR)
     app.include_router(audit_router, prefix=settings.API_V1_STR)
+    app.include_router(students_router, prefix=settings.API_V1_STR)
     
     return app
 

@@ -15,7 +15,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False) # admin, hr, viewer
+    role = Column(String(20), nullable=False) # admin, hr, student, company, viewer
     # SMTP Configuration for dynamic outbound email flawlessly
     smtp_host = Column(String(255), nullable=True)
     smtp_port = Column(Integer, server_default='587')
@@ -241,6 +241,25 @@ class SavedOffer(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    # Relationships mapping flawlessly
-    candidate = relationship("Candidate")
-    job = relationship("Job")
+class StudentAssessment(Base):
+    __tablename__ = "student_assessments"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    jd_text = Column(Text, nullable=False)
+    resume_url = Column(String(512))
+    github_username = Column(String(100))
+    
+    # Analysis results mapping flawlessly
+    total_score = Column(Numeric(5, 2))
+    summary = Column(Text)
+    skill_gap = Column(JSONB) # List of strings
+    score_breakdown = Column(JSONB)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationship
+    user = relationship("User")
+
+    __table_args__ = (
+        Index('idx_assessment_user_id', 'user_id'),
+    )

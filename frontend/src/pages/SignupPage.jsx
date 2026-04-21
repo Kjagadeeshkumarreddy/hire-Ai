@@ -8,7 +8,7 @@ const SignupPage = () => {
     full_name: '',
     email: '',
     password: '',
-    role: 'admin'
+    role: 'student'
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -123,8 +123,9 @@ const SignupPage = () => {
                   onChange={e => setFormData({...formData, role: e.target.value})}
                   className="w-full pl-11 pr-4 py-3 bg-surface border border-border rounded-xl text-white focus:outline-none focus:border-primary-500 transition-colors appearance-none" 
                 >
+                  <option value="student">Student (Self-Assessment)</option>
+                  <option value="hr">Company (HR Manager)</option>
                   <option value="admin">System Admin</option>
-                  <option value="hr">HR Manager</option>
                 </select>
               </div>
             </div>

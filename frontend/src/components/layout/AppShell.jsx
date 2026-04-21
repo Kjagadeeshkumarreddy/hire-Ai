@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, FileText, Settings, ShieldAlert, LogOut, UserCheck, Mail, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Settings, ShieldAlert, LogOut, UserCheck, Mail, MessageSquare, History } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 
 const SidebarItem = ({ icon: Icon, label, path, onNavigate }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const isActive = location.pathname === path || (path !== '/' && location.pathname.startsWith(path));
+  const isActive = path === '/' 
+    ? location.pathname === '/' 
+    : (path === '/student' ? location.pathname === '/student' : location.pathname.startsWith(path));
   
   const handleNavigate = (e) => {
     e.preventDefault();
@@ -60,7 +62,7 @@ const AppShell = () => {
         </div>
       )}
 
-      <aside className="w-64 border-r border-border bg-[#0A0A0B] flex flex-col">
+      <aside className="w-64 border-r border-border bg-[#0A0A0B] flex flex-col print:hidden">
         <div className="p-6 border-b border-border flex items-center gap-3">
           <div className="p-2 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg shadow-lg shadow-primary-500/20">
             <ShieldAlert size={24} className="text-white" />
@@ -70,14 +72,31 @@ const AppShell = () => {
         
         <nav className="flex-1 px-4 py-6 overflow-y-auto">
           <p className="px-4 text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 opacity-50">Platform</p>
-          <SidebarItem icon={LayoutDashboard} label="Dashboard" path="/" onNavigate={handleStartNav} />
-          <SidebarItem icon={FileText} label="JD Builder" path="/jd" onNavigate={handleStartNav} />
-          <SidebarItem icon={Users} label="Candidates" path="/candidates" onNavigate={handleStartNav} />
-          <SidebarItem icon={UserCheck} label="Shortlisted" path="/shortlisted" onNavigate={handleStartNav} />
-          <SidebarItem icon={Mail} label="Campaigns" path="/campaign" onNavigate={handleStartNav} />
-          <SidebarItem icon={MessageSquare} label="Interview Forge" path="/questions" onNavigate={handleStartNav} />
-          {localStorage.getItem('offer_letter_engine_active') === 'true' && (
-            <SidebarItem icon={FileText} label="Generate Offer Letter" path="/offer-letter" onNavigate={handleStartNav} />
+          
+          {!user && token ? (
+            /* Skeleton Loading State flawlessly */
+            <div className="space-y-3 px-4 py-2">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="h-10 bg-surface-dark animate-pulse rounded-lg opacity-50" />
+              ))}
+            </div>
+          ) : user?.role === 'student' ? (
+            <>
+              <SidebarItem icon={LayoutDashboard} label="Self-Assessment" path="/student" onNavigate={handleStartNav} />
+              <SidebarItem icon={History} label="Past Audits" path="/student/history" onNavigate={handleStartNav} />
+            </>
+          ) : (
+            <>
+              <SidebarItem icon={LayoutDashboard} label="Dashboard" path="/" onNavigate={handleStartNav} />
+              <SidebarItem icon={FileText} label="JD Builder" path="/jd" onNavigate={handleStartNav} />
+              <SidebarItem icon={Users} label="Candidates" path="/candidates" onNavigate={handleStartNav} />
+              <SidebarItem icon={UserCheck} label="Shortlisted" path="/shortlisted" onNavigate={handleStartNav} />
+              <SidebarItem icon={Mail} label="Campaigns" path="/campaign" onNavigate={handleStartNav} />
+              <SidebarItem icon={MessageSquare} label="Interview Forge" path="/questions" onNavigate={handleStartNav} />
+              {localStorage.getItem('offer_letter_engine_active') === 'true' && (
+                <SidebarItem icon={FileText} label="Generate Offer Letter" path="/offer-letter" onNavigate={handleStartNav} />
+              )}
+            </>
           )}
           
           <p className="px-4 text-xs font-semibold text-text-muted uppercase tracking-wider mt-8 mb-2 opacity-50">System</p>
@@ -106,9 +125,8 @@ const AppShell = () => {
         </div>
       </aside>
       
-      <main className="flex-1 flex flex-col overflow-hidden relative">
-
-        <div className="flex-1 overflow-auto p-8 relative scroll-smooth">
+      <main className="flex-1 flex flex-col overflow-hidden relative print:overflow-visible print:block">
+        <div className="flex-1 overflow-auto p-8 relative scroll-smooth print:p-0 print:overflow-visible print:block">
           <Outlet />
         </div>
       </main>

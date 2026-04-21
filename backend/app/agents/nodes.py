@@ -119,9 +119,10 @@ You are a Technical Talent Scout. Your goal is to identify the 3 best repositori
 You will be provided with a list of repositories (with names and descriptions) and a Job Description (JD).
 
 Rank the repositories based on:
-1. Technical Relevance: Does the repo demonstrate skills, frameworks, or languages requested in the JD?
-2. Engineering Difficulty: Does it show complex problem solving or architectural maturity?
-3. Originality: Prioritize original code over forks, simple tutorials, or boilerplate.
+1. Domain Alignment: Prioritize projects that match the DOMAIN of the JD (e.g., for Full Stack, look for Web Frameworks/UI/DB; for Data Science, look for Models/Analysis). Avoid choosing projects just because the language (like Python) matches.
+2. Technical Relevance: Does the repo demonstrate specific frameworks or tools explicitly requested in the JD (e.g., React, Django, Kafka)?
+3. Engineering Difficulty: Does it show complex problem solving, system design, or architectural maturity beyond simple tutorials?
+4. Originality: Prioritize original projects over forks or boilerplate.
 
 Return ONLY a JSON array of the top 3 repository names in order of relevance: ["repo1_name", "repo2_name", "repo3_name"]. 
 If there are fewer than 3 repositories, return all of them.
@@ -134,6 +135,7 @@ from sqlalchemy import select, update, func
 import json
 from app.modules.github_analyzer.client import GitHubClient
 from app.modules.github_analyzer.github_processor import analyze_github_data
+from app.modules.github_analyzer.service import GitHubService
 
 # JD Processing Nodes
 async def jd_generator_node(state: HiringPipelineState) -> dict:
@@ -261,50 +263,8 @@ async def github_analyzer_node(state: HiringPipelineState) -> dict:
     """Analyze GitHub profiling with a parallel multi-agent deep dive into top projects."""
     candidate_ids = state.get("candidate_ids", [])
     github_results = {}
-    gh_client = GitHubClient()
     jd_content = state.get("jd_content", "")
     
-    async def audit_single_repo(cand_username, repo):
-        """Internal agent task to perform a deep-technical audit of one repository."""
-        logger.debug("agent.github_auditor.started", repo=repo['name'])
-        
-        # Fetching high-density signals for the audit
-        readme = await gh_client.get_repo_readme(cand_username, repo['name'])
-        contents = await gh_client.get_repo_contents(cand_username, repo['name'])
-        
-        # Flatten contents for prompt
-        file_list = [f"{c['name']} ({c['type']})" for c in contents[:30]] # Limit to 30 files for token safety
-        
-        prompt = f"""
-        AUDIT TARGET: {repo['name']}
-        DESCRIPTION: {repo.get('description', 'No description')}
-        LANGUAGES: {repo.get('language', 'Unknown')}
-        STARS: {repo.get('stars', 0)}
-        
-        FILE STRUCTURE:
-        {", ".join(file_list)}
-        
-        README CONTENT (Truncated):
-        {readme[:2000]}
-        
-        Evaluate the architectural maturity and code standards of this repo.
-        """
-        
-        messages = [
-            SystemMessage(content=REPO_AUDITOR_PROMPT),
-            HumanMessage(content=prompt)
-        ]
-        
-        try:
-            content = await cached_llm_invoke(messages)
-            return {
-                "name": repo['name'],
-                "audit_summary": content,
-                "url": repo.get('url')
-            }
-        except Exception as e:
-            return {"name": repo['name'], "error": str(e)}
-
     async with AsyncSessionLocal() as db:
         stmt = select(Candidate).where(Candidate.id.in_(candidate_ids))
         result = await db.execute(stmt)
@@ -312,160 +272,50 @@ async def github_analyzer_node(state: HiringPipelineState) -> dict:
         
         for cand in candidates:
             username = cand.github_username
-            if username and "github.com/" in username:
-                username = username.split("github.com/")[-1].strip("/")
-            
             if username:
-                logger.info("agent.github_analyzer.fetching", username=username)
-                raw_repos = await gh_client.get_user_repositories(username)
+                logger.info("agent.github_analyzer.processing", username=username, candidate_id=str(cand.id))
                 
-                # Metadata aggregation
-                processed_data = analyze_github_data(raw_repos)
+                # Execute the centralized GitHub analysis flawlessly
+                analysis = await GitHubService.analyze_user_profile(username, jd_content)
                 
-                # 1. SEMANTIC RANKING: Select the best projects based on JD fit flawlessy
-                all_raw_repos = [r for r in processed_data['top_repos'] if not r.get('fork')]
-                
-                top_repos = all_raw_repos[:3] # Default fallback
-                
-                if len(all_raw_repos) > 3:
-                    logger.info("agent.github_analyzer.ranking_repos", username=username, count=len(all_raw_repos))
-                    repo_list_str = "\n".join([f"- {r['name']} ({r.get('language', 'Unknown')}): {r.get('description', 'No description')}" for r in all_raw_repos])
-                    
-                    ranking_prompt = f"""
-                    JD: {jd_content[:1500]}
-                    
-                    CANDIDATE REPOS:
-                    {repo_list_str}
-                    """
-                    
-                    try:
-                        messages = [
-                            SystemMessage(content=REPO_RANKER_PROMPT),
-                            HumanMessage(content=ranking_prompt)
-                        ]
-                        content = await cached_llm_invoke(messages)
-                        json_snippet = extract_json_from_response(content)
-                        if not json_snippet:
-                            raise ValueError("LLM returned empty or non-JSON content")
-                            
-                        ranked_names = json.loads(json_snippet)
-                        
-                        if not isinstance(ranked_names, list):
-                            raise ValueError("Ranking result is not a list")
-                            
-                        # Map names back to objects flawlessly
-                        selected_repos = []
-                        for name in ranked_names:
-                            match = next((r for r in all_raw_repos if r['name'] == name), None)
-                            if match:
-                                selected_repos.append(match)
-                        
-                        if selected_repos:
-                            top_repos = selected_repos[:3]
-                            logger.info("agent.github_analyzer.semantic_selection_complete", selected=[r['name'] for r in top_repos])
-                    except Exception as e:
-                        logger.error("agent.github_analyzer.ranking_error", error=str(e))
-                        # Fallback to the top 3 repos by stars/activity already in top_repos flawlessy
-                
-                # 2. PARALLEL DEEP DIVE: Auditing the Selected projects simultaneously
-                logger.info("agent.github_analyzer.parallel_deep_dive", count=len(top_repos))
-                import asyncio
-                repo_audits = await asyncio.gather(*[
-                    audit_single_repo(username, repo) for repo in top_repos
-                ])
-
-                
-                # Prepare a definitive technical context for the final synthesis
-                audit_contexts = []
-                for audit in repo_audits:
-                    if "error" not in audit:
-                        audit_contexts.append(f"PROJECT: {audit['name']}\nAUDIT: {audit['audit_summary']}")
-                
-                profile_context = f"""
-                EXPLICIT GITHUB DATA FOR {username}:
-                {processed_data['llm_input']}
-                
-                DEEP-DIVE TECHNICAL AUDITS:
-                {"---".join(audit_contexts)}
-                
-                METRICS:
-                - Heuristic Risk Level: {processed_data['risk']}
-                - Rule-based Score: {processed_data['score']}/100
-                """
-                
-                # 2. FINAL SYNTHESIS: Holistic profile evaluation based on deep signals
-                prompt = f"""
-                You are a senior technical interviewer. 
-                Analyze the following EXPLICIT GitHub data and DEEP-DIVE AUDITS for the candidate. 
-                
-                {profile_context}
-                
-                JD CONTEXT: {jd_content[:500]}
-                
-                Focus on:
-                1. Project Complexity (Based on README and file structures).
-                2. Architectural Maturity (Does the candidate follow industry practices?).
-                3. Technical Alignment with the JD.
-                
-                Return JSON:
-                {{
-                    "authenticity_score": 0.0 to 1.0,
-                    "quality_assessment": "Detailed assessment citing specific repo structures.",
-                    "top_technologies": []
-                }}
-                """
-                
-                try:
-                    messages = [
-                        SystemMessage(content="You are a JSON assistant. Always return only valid, minifyable JSON without any explanation."),
-                        HumanMessage(content=prompt)
-                    ]
-                    content = await cached_llm_invoke(messages)
-                    json_str = extract_json_from_response(content)
-                    ai_analysis = json.loads(json_str)
-                    
-                    # Include project names in the summary to anchor the next LLM stages flawlessly
-                    project_names = ", ".join([a['name'] for a in repo_audits if "error" not in a])
-                    summary_text = f"PARALLEL GITHUB AUDIT COMPLETE for: {project_names}. "
-                    summary_text += ai_analysis.get('quality_assessment', '')
-                    
+                if analysis.get("status") == "success":
                     # Persist GitHub analysis data mapped flawlessly
-                    async with AsyncSessionLocal() as db:
-                        gh_stmt = select(GitHubAnalysis).where(GitHubAnalysis.candidate_id == cand.id)
-                        gh_res = await db.execute(gh_stmt)
-                        gh_record = gh_res.scalar_one_or_none()
-                        
-                        if not gh_record:
-                            gh_record = GitHubAnalysis(
-                                candidate_id=cand.id, 
-                                username=username
-                            )
-                            db.add(gh_record)
-                        
-                        gh_features = processed_data.get("features", {})
-                        gh_record.total_stars = gh_features.get("total_stars", 0)
-                        gh_record.total_repos = gh_features.get("total_repos", 0)
-                        gh_record.top_languages = gh_features.get("top_languages", [])
-                        gh_record.authenticity_score = ai_analysis.get("authenticity_score", 0.9)
-                        gh_record.analysis_status = "completed"
-                        gh_record.analyzed_at = func.now()
-                        
-                        await db.commit()
-                        
+                    gh_stmt = select(GitHubAnalysis).where(GitHubAnalysis.candidate_id == cand.id)
+                    gh_res = await db.execute(gh_stmt)
+                    gh_record = gh_res.scalar_one_or_none()
+                    
+                    if not gh_record:
+                        gh_record = GitHubAnalysis(
+                            candidate_id=cand.id, 
+                            username=analysis["username"]
+                        )
+                        db.add(gh_record)
+                    
+                    metrics = analysis.get("metrics", {})
+                    ai_analysis = analysis.get("ai_analysis", {})
+                    
+                    gh_record.total_stars = metrics.get("total_stars", 0)
+                    gh_record.total_repos = metrics.get("total_repos", 0)
+                    gh_record.top_languages = metrics.get("top_languages", [])
+                    gh_record.authenticity_score = ai_analysis.get("authenticity_score", 0.9)
+                    gh_record.analysis_status = "completed"
+                    gh_record.analyzed_at = func.now()
+                    
                     github_results[str(cand.id)] = {
-                        "github_summary_text": summary_text,
-                        "repo_audits": repo_audits,
-                        **processed_data["features"], 
+                        "github_summary_text": analysis["summary_text"],
+                        "repo_audits": analysis["repo_audits"],
+                        **metrics, 
                         **ai_analysis,
-                        "heuristic_score": processed_data["score"],
-                        "risk": processed_data["risk"],
+                        "heuristic_score": analysis["heuristic_score"],
+                        "risk": analysis["risk"],
                         "status": "success"
                     }
-                except Exception as e:
-                    logger.error("agent.github_analyzer.synthesis_error", error=str(e))
-                    github_results[str(cand.id)] = {"status": "error", "error": str(e)}
+                else:
+                    github_results[str(cand.id)] = {"status": analysis.get("status", "error"), "error": analysis.get("error")}
             else:
                 github_results[str(cand.id)] = {"status": "no_handle_found"}
+        
+        await db.commit()
                 
     return {
         "github_results": github_results, 
