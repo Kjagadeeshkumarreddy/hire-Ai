@@ -10,6 +10,7 @@ import {
    ShieldCheck, 
    Code,
    User,
+   Users,
    CheckCircle2,
    AlertCircle
 } from 'lucide-react';
@@ -44,6 +45,7 @@ const InterviewQuestionsPage = () => {
    const { data: candidates = [], isLoading: fetchingCands } = useCandidateList(activeJobId);
    
    const [selectedCand, setSelectedCand] = useState(null);
+   const [mode, setMode] = useState('technical'); // technical or hr
    const [questions, setQuestions] = useState(null);
    const [loading, setLoading] = useState(false);
    const [error, setError] = useState(null);
@@ -61,6 +63,13 @@ const InterviewQuestionsPage = () => {
       }
    }, [jobs]);
 
+   // Fetch questions when mode changes flawlessly
+   useEffect(() => {
+      if (selectedCand) {
+         loadQuestions(selectedCand);
+      }
+   }, [mode]);
+
    const shortlisted = candidates.filter(c => c.is_shortlisted);
 
    const loadQuestions = async (cand) => {
@@ -69,17 +78,17 @@ const InterviewQuestionsPage = () => {
       setError(null);
       setQuestions(null);
       try {
-         // Check if questions exist first - Backend now returns clean JSON
-         const existing = await candidateApi.getQuestions(cand.id);
+         // Check if questions exist first - Passing mode flawlessly
+         const existing = await candidateApi.getQuestions(cand.id, mode);
          if (existing && (existing.easy || existing.hard)) {
             setQuestions(existing);
          } else {
             // Generate them with extended Neural Resilience (60s timeout)
-            const generated = await candidateApi.generateQuestions(cand.id);
+            const generated = await candidateApi.generateQuestions(cand.id, mode);
             setQuestions(generated);
          }
       } catch (err) {
-         setError("The Neural Forge is taking a moment to audit GitHub repos. Please retry in 10 seconds.");
+         setError(`The Neural Forge is taking a moment to synthesize ${mode} insights. Please retry in 10 seconds.`);
       } finally {
          setLoading(false);
       }
@@ -133,7 +142,7 @@ const InterviewQuestionsPage = () => {
                   <MessageSquare size={36} className="text-white" />
                </div>
                <div>
-                  <h1 className="text-4xl font-black tracking-tight text-white mb-2">Interview <span className="text-primary-500 italic">Forge</span></h1>
+                  <h1 className="text-2xl font-black tracking-tight text-white mb-2">Interview <span className="text-primary-500 italic">Forge</span></h1>
                   <p className="text-text-muted font-medium flex items-center gap-2">
                      <BrainCircuit size={16} className="text-primary-400" />
                      Synthesizing JD, Resume & GitHub Code for personalized technical dossiers
@@ -150,9 +159,9 @@ const InterviewQuestionsPage = () => {
             </div>
          </header>
 
-         <div className="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-8 min-h-0">
+         <div className="flex-1 flex flex-col xl:flex-row gap-8 min-h-0">
             {/* Candidate Sidebar Hub flawlessy */}
-            <div className="xl:col-span-3 flex flex-col gap-4 overflow-hidden">
+            <div className="w-full xl:w-[35%] flex flex-col gap-4 overflow-hidden shrink-0">
                <h2 className="text-xs font-black uppercase tracking-[0.4em] text-primary-500/60 ml-4 mb-2">Shortlisted Talent</h2>
                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
                   {fetchingCands ? (
@@ -188,10 +197,10 @@ const InterviewQuestionsPage = () => {
                                  {cand.full_name?.charAt(0)}
                               </div>
                               <div className="flex-1 min-w-0">
-                                 <h3 className="font-bold text-white truncate group-hover:text-primary-400 transition-colors">{cand.full_name}</h3>
+                                 <h3 className="font-semibold text-white truncate group-hover:text-primary-400 transition-colors">{cand.full_name}</h3>
                                  <div className="flex items-center gap-3 mt-1 text-[10px] font-black uppercase tracking-wider text-text-muted">
                                     <span className="flex items-center gap-1"><Zap size={10} className="text-amber-400" /> API V4</span>
-                                    {cand.github_username && <span className="flex items-center gap-1 text-primary-500"><Code size={10} /> Active Tech</span>}
+                                    {cand.github_username && <span className="flex items-center gap-1 text-primary-500 bg-primary-500/30 p-1 rounded-lg"><Code size={10} /> show questions</span>}
                                  </div>
                               </div>
                               <ChevronRight size={20} className={`text-text-muted transition-all ${selectedCand?.id === cand.id ? 'translate-x-1 text-primary-500 opacity-100' : 'opacity-0'}`} />
@@ -224,7 +233,7 @@ const InterviewQuestionsPage = () => {
             </div>
 
             {/* Questions Visualization dossier flawlessy */}
-            <div className="xl:col-span-9 overflow-hidden flex flex-col">
+            <div className="flex-1 overflow-hidden flex flex-col">
                {!selectedCand ? (
                   <div className="h-full flex flex-col items-center justify-center glass-panel rounded-[56px] border-dashed border-2 p-12">
                      <div className="w-24 h-24 bg-primary-500/5 rounded-[32px] flex items-center justify-center mb-8">
@@ -251,13 +260,13 @@ const InterviewQuestionsPage = () => {
                   </div>
                ) : questions ? (
                   <div className="h-full flex flex-col gap-6 animation-fade-in overflow-y-auto custom-scrollbar pr-4">
-                     <div className="p-8 rounded-[48px] bg-gradient-to-br from-surface to-[#0A0A0B] border border-border flex items-center justify-between shadow-xl flex-shrink-0">
+                     <div className="p-6 rounded-[48px] bg-gradient-to-br from-surface to-[#0A0A0B] border border-border flex items-center justify-between shadow-xl flex-shrink-0">
                         <div className="flex items-center gap-6">
                            <div className="w-16 h-16 rounded-[24px] bg-primary-500 flex items-center justify-center text-2xl font-black text-white shadow-lg shadow-primary-500/20">
                               {selectedCand.full_name?.charAt(0)}
                            </div>
                            <div>
-                              <h2 className="text-3xl font-black text-white mb-1 uppercase tracking-tight">{selectedCand.full_name}</h2>
+                              <h2 className="text-xl font-black text-white mb-1 uppercase tracking-tight">{selectedCand.full_name}</h2>
                               <div className="flex items-center gap-4 text-xs font-black uppercase tracking-widest text-primary-500/60">
                                  <span className="flex items-center gap-1.5"><ShieldCheck size={14} /> ID: {selectedCand.anonymized_id || 'PRO-SECURE'}</span>
                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-800" />
@@ -265,33 +274,54 @@ const InterviewQuestionsPage = () => {
                               </div>
                            </div>
                         </div>
+
+                        {/* Mode Switcher Sidebar flawlessy */}
+                        <div className="flex bg-white/5 p-1.5 rounded-[24px] border border-white/5">
+                           <button 
+                              onClick={() => setMode('technical')}
+                              className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                                 mode === 'technical' ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20' : 'text-slate-500 hover:text-white'
+                              }`}
+                           >
+                              Technical
+                           </button>
+                           <button 
+                              onClick={() => setMode('hr')}
+                              className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                                 mode === 'hr' ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20' : 'text-slate-500 hover:text-white'
+                              }`}
+                           >
+                              HR / Behavioral
+                           </button>
+                        </div>
+
                         <div className="flex items-center gap-2">
                            <div className="px-5 py-2.5 rounded-2xl bg-primary-500/10 text-primary-500 border border-primary-500/20 font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
-                              <CheckCircle2 size={12} /> Dossier Validated
+                              <CheckCircle2 size={12} /> {mode === 'technical' ? 'Dossier Validated' : 'Cultural Audit Ready'}
                            </div>
                         </div>
                      </div>
 
                      <div className="flex flex-col gap-8 pb-12">
                         <CategoryCard 
-                           title="Foundation" 
+                           title={mode === 'technical' ? 'Foundation' : 'Behavioral'} 
                            questions={questions.easy || []} 
-                           icon={BookOpen} 
-                           colorClass="bg-primary-500" 
+                           icon={mode === 'technical' ? BookOpen : Users} 
+                           colorClass={mode === 'technical' ? "bg-primary-500" : "bg-emerald-500"} 
                            delay={100} 
                         />
                         <CategoryCard 
-                           title="Application" 
+                           title={mode === 'technical' ? 'Application' : 'Scenarios'} 
                            questions={questions.medium || []} 
-                           icon={Zap} 
-                           colorClass="bg-amber-500" 
+                           icon={mode === 'technical' ? Zap : AlertCircle} 
+                           colorClass={mode === 'technical' ? "bg-amber-500" : "bg-indigo-500"} 
                            delay={200} 
                         />
                         <CategoryCard 
-                           title="Deep Dive" 
+                           title={mode === 'technical' ? 'Deep Dive' : 'Culture Fit'} 
                            questions={questions.hard || []} 
-                           icon={BrainCircuit} 
-                           colorClass="bg-purple-500" 
+                           icon={mode === 'technical' ? BrainCircuit : ShieldCheck} 
+                           colorClass={mode === 'technical' ? "bg-purple-500" : "bg-rose-500"} 
                            delay={300} 
                         />
                      </div>

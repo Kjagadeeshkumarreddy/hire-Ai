@@ -80,7 +80,7 @@ const CampaignPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-8 pt-6 selection:bg-cyan-500/30">
+    <div className="min-h-screen bg-[#050505] text-white p-4 pt-2 selection:bg-cyan-500/30">
       <div className="max-w-[1600px] mx-auto animation-fade-in pb-20">
         
         {/* V3 Navigation Bar flawlessy */}
@@ -132,17 +132,16 @@ const CampaignPage = () => {
             </button>
           </div>
         ) : (
-          <div className="flex gap-10 items-stretch">
+          <div className="flex gap-10 items-start">
             
-            {/* Left: Adjustment Studio flawlessy */}
-            <aside className="w-[480px] space-y-8 flex flex-col">
-              <div className="bg-[#0A0A0B] border border-slate-800 rounded-[40px] p-10 shadow-xl flex-1 flex flex-col space-y-8">
+            <aside className="w-[380px] space-y-6 flex flex-col shrink-0">
+              <div className="bg-[#0A0A0B] border border-slate-800 rounded-[40px] p-8 shadow-xl h-[480px] flex flex-col space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="p-3 bg-primary-500/10 rounded-2xl text-primary-500 border border-primary-500/20">
+                    <div className="p-2 bg-primary-500/10 rounded-2xl text-primary-500 border border-primary-500/20">
                       <Terminal size={20} />
                     </div>
-                    <h4 className="text-xs font-black uppercase tracking-[0.3em] text-white">AI Adjustment Terminal</h4>
+                    <h4 className="text-sm font-black uppercase tracking-[0.3em] text-white">AI Adjustment Terminal</h4>
                   </div>
                 </div>
 
@@ -150,7 +149,7 @@ const CampaignPage = () => {
                   <div className="relative flex-1 group">
                     <textarea 
                       placeholder="Instruct the AI engine (e.g. 'Add more enthusiasm', 'Mention our flexible work style')..."
-                      className="w-full h-full bg-[#1E293B] border-2 border-slate-700 rounded-3xl p-8 text-base text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50 transition-all resize-none leading-relaxed font-medium shadow-inner"
+                      className="w-full h-full bg-[#1E293B] border-2 border-slate-700 rounded-3xl p-4 text-base text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50 transition-all resize-none leading-relaxed font-medium shadow-inner"
                       value={adjustments}
                       onChange={(e) => setAdjustments(e.target.value)}
                     />
@@ -170,7 +169,7 @@ const CampaignPage = () => {
                 </div>
               </div>
 
-              <div className="bg-[#0A0A0B]/50 border border-slate-800/50 rounded-[40px] p-10 flex items-center justify-between">
+              <div className="bg-[#0A0A0B]/50 border border-slate-800/50 rounded-[40px] p-4 flex items-center justify-between">
                  <div>
                     <div className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">Campaign Target</div>
                     <div className="flex items-center gap-2">
@@ -193,12 +192,12 @@ const CampaignPage = () => {
               <div className="bg-[#0A0A0B] border border-slate-800 rounded-[48px] p-12 shadow-2xl flex flex-col flex-1 space-y-10">
                 
                 <div className="flex items-center gap-8">
-                   <div className="p-5 bg-white/5 rounded-[32px] text-white border border-white/10 shadow-xl">
-                      <Mail size={32} />
+                   <div className="p-5 bg-white/5 rounded-[50px] text-white border border-white/10 shadow-xl">
+                      <Mail size={50} />
                    </div>
                    <div className="flex-1">
                       <div className="flex items-center gap-6 mb-2">
-                         <h2 className="text-4xl font-black text-white uppercase tracking-tighter">Email Studio</h2>
+                         <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Email Studio</h2>
                          <div className="px-3 py-1 bg-primary-500/10 border border-primary-500 text-[10px] font-black text-primary-500 uppercase tracking-widest rounded-lg">High Contrast Mode</div>
                       </div>
                       <p className="text-sm text-slate-500 font-bold uppercase tracking-[0.4em]">Draft Vetting & Global Dispatch</p>
@@ -215,7 +214,7 @@ const CampaignPage = () => {
                            value={draft.subject}
                            onChange={(e) => setDraft({...draft, subject: e.target.value})}
                            placeholder="Campaign Subject Line..."
-                           className="w-full bg-[#1E293B] border-2 border-slate-700 rounded-[32px] px-10 py-8 text-2xl font-black text-white focus:outline-none focus:border-cyan-500 transition-all placeholder:text-slate-600 shadow-inner group-hover:border-slate-500"
+                           className="w-full bg-[#1E293B] border-2 border-slate-700 rounded-[32px] px-10 py-8 text-xl font-black text-white focus:outline-none focus:border-cyan-500 transition-all placeholder:text-slate-600 shadow-inner group-hover:border-slate-500"
                         />
                         <div className="absolute right-8 top-1/2 -translate-y-1/2 opacity-20 group-hover:opacity-100 transition-opacity">
                            <Layout size={24} className="text-cyan-400" />
@@ -244,7 +243,7 @@ const CampaignPage = () => {
                 </div>
 
                 {/* Dispatch Control flawlessly */}
-                <div className="pt-8 border-t border-slate-800/50 flex items-center justify-between">
+                <div className="pt-4 border-t border-slate-800/50 flex items-center justify-between">
                    <div className="flex items-center gap-4">
                       <div className="w-3 h-3 rounded-full bg-primary-500 shadow-[0_0_20px_rgba(20,184,166,0.6)] animate-pulse" />
                       <span className="text-xs font-black text-slate-500 uppercase tracking-[0.3em]">System Ready for Mass Distribution</span>
@@ -253,11 +252,11 @@ const CampaignPage = () => {
                    <button 
                       onClick={handleSendAll}
                       disabled={sending || loading || !draft.body}
-                      className="relative group px-16 py-7 bg-gradient-to-r from-primary-500 to-primary-600 rounded-[32px] overflow-hidden shadow-[0_30px_60px_rgba(20,184,166,0.25)] hover:scale-105 active:scale-95 transition-all disabled:opacity-20 translate-y-2"
+                      className="relative group px-10 h-24 bg-gradient-to-r from-primary-500 to-primary-600 rounded-[32px] overflow-hidden shadow-[0_30px_60px_rgba(20,184,166,0.25)] hover:scale-105 active:scale-95 transition-all disabled:opacity-20 translate-y-2"
                    >
                       <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <div className="relative flex items-center gap-5 text-white font-black uppercase tracking-[0.4em] text-sm">
-                         {sending ? <Loader2 size={24} className="animate-spin" /> : <Send size={24} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />}
+                      <div className="relative flex items-center gap-4 text-white font-black uppercase tracking-[0.4em] text-sm">
+                         {sending ? <Loader2 size={72} className="animate-spin" /> : <Send size={72} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />}
                          {sending ? 'Deploying...' : 'Blast Campaign'}
                       </div>
                    </button>

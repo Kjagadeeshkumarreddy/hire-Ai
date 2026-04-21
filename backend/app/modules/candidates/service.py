@@ -212,7 +212,7 @@ async def generate_bulk_email_draft(job_id: UUID, db: AsyncSession, adjustments:
             "body": f"<p>{greeting} {{candidate_name}},</p><p>We have an opening for a <strong>{{job_title}}</strong> that aligns perfectly with your technical background.</p><p>We would value a brief conversation about this role. [Link]</p><p>Best regards,<br/>Recruitment</p>"
         }
 
-async def generate_interview_questions(candidate_id: UUID, db: AsyncSession) -> Dict[str, Any]:
+async def generate_interview_questions(candidate_id: UUID, db: AsyncSession, category: str = "technical") -> Dict[str, Any]:
     """Generate categorized interview questions (Easy, Med, Hard) by synthesizing JD, Resume, and GitHub."""
     from app.db.models import Resume, GitHubAnalysis, InterviewQuestion, Job, JDVersion
     
@@ -238,34 +238,50 @@ async def generate_interview_questions(candidate_id: UUID, db: AsyncSession) -> 
     jd = (await db.execute(jd_stmt)).scalars().first()
     jd_text = jd.content if jd else job.title
 
-    # 3. Construct the "Deep Audit" Prompt
+    # 3. Construct the prompt based on category flawlessly
     client = Groq(api_key=settings.GROQ_API_KEY)
     
     resume_context = f"RESUME SUMMARY: {resume.parsed_data if resume else 'N/A'}"
     github_context = f"GITHUB REPOS: {github.top_repos if github else 'N/A'}. LANGUAGES: {github.top_languages if github else 'N/A'}"
     
-    prompt = f"""
-    ROLE: {job.title}
-    JD: {jd_text[:800]}
-    
-    CANDIDATE: {candidate.full_name}
-    {resume_context}
-    {github_context}
-    
-    TASK: Generate a technical interview guide categorized by difficulty.
-    - EASY: Foundation questions based on their Resume claims.
-    - MEDIUM: Application questions based on the JD requirements.
-    - HARD: Deep-dive questions based on their actual GITHUB IMPLEMENTATIONS and complex projects.
-    
-    INSTRUCTION: Specifically mention repository names or specific resume projects in the 'HARD' questions.
-    Format your response as a JSON object with keys: "easy", "medium", "hard". Each value should be a list of 2-3 questions.
-    """
+    if category == "hr":
+        prompt = f"""
+        ROLE: {job.title}
+        JD: {jd_text[:800]}
+        CANDIDATE: {candidate.full_name}
+        {resume_context}
+        
+        TASK: Generate a behavioral and cultural interview guide.
+        - EASY: Ice-breakers and personal roadmap based on their career history.
+        - MEDIUM: Scenario-based questions on conflict resolution, teamwork, and ownership.
+        - HARD: Deep-dive into cultural fit, long-term ambitions, and leadership potential in a scale-up.
+        
+        INSTRUCTION: Focus on communication, character, and vision.
+        Format as JSON with keys: "easy", "medium", "hard". Each value is a list of 2-3 questions.
+        """
+    else:
+        # Tech prompt
+        prompt = f"""
+        ROLE: {job.title}
+        JD: {jd_text[:800]}
+        CANDIDATE: {candidate.full_name}
+        {resume_context}
+        {github_context}
+        
+        TASK: Generate a technical interview guide categorized by difficulty.
+        - EASY: Foundation questions based on their Resume claims.
+        - MEDIUM: Application questions based on the JD requirements.
+        - HARD: Deep-dive questions based on their actual GITHUB IMPLEMENTATIONS and complex projects.
+        
+        INSTRUCTION: Specifically mention repository names or specific resume projects in the 'HARD' questions.
+        Format as JSON with keys: "easy", "medium", "hard". Each value is a list of 2-3 questions.
+        """
 
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": "You are a world-class technical interviewer. Return JSON."},
+                {"role": "system", "content": f"You are a world-class {'technical' if category == 'technical' else 'HR'} interviewer. Return JSON."},
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"}
@@ -278,6 +294,7 @@ async def generate_interview_questions(candidate_id: UUID, db: AsyncSession) -> 
             candidate_id=candidate_id,
             job_id=job.id,
             questions=questions,
+            question_category=category,
             llm_model="llama-3.3-70b-versatile"
         )
         db.add(new_q)

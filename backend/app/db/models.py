@@ -173,6 +173,7 @@ class InterviewQuestion(Base):
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
     questions = Column(JSONB, nullable=False)
+    question_category = Column(String(50), server_default='technical')
     generation_prompt = Column(Text)
     llm_model = Column(String(50))
     status = Column(String(20), server_default='draft')

@@ -287,7 +287,7 @@ async def github_analyzer_node(state: HiringPipelineState) -> dict:
                     if not gh_record:
                         gh_record = GitHubAnalysis(
                             candidate_id=cand.id, 
-                            username=analysis["username"]
+                            username=analysis.get("username", username)
                         )
                         db.add(gh_record)
                     

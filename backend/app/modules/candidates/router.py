@@ -461,16 +461,21 @@ async def bulk_investigate(job_id: str, db: AsyncSession = Depends(get_db)):
         media_type="text/event-stream"
     )
 @router.post("/{candidate_id}/questions")
-async def generate_questions(candidate_id: UUID, db: AsyncSession = Depends(get_db)):
+async def generate_questions(candidate_id: UUID, category: str = "technical", db: AsyncSession = Depends(get_db)):
     """Trigger the AI Forge to generate categorized interview questions flawlessly."""
     from .service import generate_interview_questions
-    return await generate_interview_questions(candidate_id, db)
+    return await generate_interview_questions(candidate_id, db, category=category)
 
 @router.get("/{candidate_id}/questions")
-async def get_questions(candidate_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_questions(candidate_id: UUID, category: str = "technical", db: AsyncSession = Depends(get_db)):
     """Retrieve existing interview questions for a candidate flawlessly."""
     from app.db.models import InterviewQuestion
-    stmt = select(InterviewQuestion).where(InterviewQuestion.candidate_id == candidate_id).order_by(InterviewQuestion.created_at.desc())
+    stmt = (
+        select(InterviewQuestion)
+        .where(InterviewQuestion.candidate_id == candidate_id)
+        .where(InterviewQuestion.question_category == category)
+        .order_by(InterviewQuestion.created_at.desc())
+    )
     res = await db.execute(stmt)
     iq = res.scalars().first()
     return iq.questions if iq else None

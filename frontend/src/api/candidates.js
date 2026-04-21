@@ -57,13 +57,13 @@ export const candidateApi = {
     return data;
   },
 
-  getQuestions: async (candidateId) => {
-    const { data } = await apiClient.get(`/candidates/${candidateId}/questions`);
+  getQuestions: async (candidateId, category = 'technical') => {
+    const { data } = await apiClient.get(`/candidates/${candidateId}/questions`, { params: { category } });
     return data;
   },
 
-  generateQuestions: async (candidateId) => {
-    const { data } = await apiClient.post(`/candidates/${candidateId}/questions`);
+  generateQuestions: async (candidateId, category = 'technical') => {
+    const { data } = await apiClient.post(`/candidates/${candidateId}/questions`, null, { params: { category } });
     return data;
   },
 

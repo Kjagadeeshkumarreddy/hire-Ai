@@ -133,6 +133,7 @@ class GitHubService:
 
         return {
             "status": "success",
+            "username": username,
             "summary_text": summary_text,
             "repo_audits": repo_audits,
             "metrics": processed_data['features'],
