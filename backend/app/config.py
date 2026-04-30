@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+from pathlib import Path
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "AI Hiring Platform"
@@ -39,10 +40,22 @@ class Settings(BaseSettings):
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
 
+    # Security Configuration
+    ADMIN_PASSKEY: str
+
+    @property
+    def admin_passkey(self) -> str:
+        return self.ADMIN_PASSKEY.strip()
+
+    @property
+    def psycopg_url(self) -> str:
+        # Native psycopg3 URI
+        return self.DATABASE_URL.strip()
+
     model_config = SettingsConfigDict(
-        env_file=".env", 
+        env_file=str(Path(__file__).parent.parent / ".env"),
         case_sensitive=True,
-        extra="allow"  # Allow extra fields without crashing during transition flawlessly
+        extra="allow"
     )
 
     @property
@@ -52,10 +65,5 @@ class Settings(BaseSettings):
         if url.startswith("postgresql://"):
             return url.replace("postgresql://", "postgresql+psycopg://", 1)
         return url
-
-    @property
-    def psycopg_url(self) -> str:
-        # Native psycopg3 URI
-        return self.DATABASE_URL.strip()
 
 settings = Settings()

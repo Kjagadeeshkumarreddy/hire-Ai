@@ -66,9 +66,8 @@ const SignupPage = () => {
       {/* Right Sign Up Box */}
       <div className="flex flex-col items-center justify-center p-8 lg:p-24 relative">
         <div className="w-full max-w-md space-y-8">
-          <div className="text-center md:text-left mb-8">
+          <div className="text-center md:text-left mb-4">
             <h2 className="text-3xl font-bold text-white mb-2">Initialize Account</h2>
-            <p className="text-text-muted">Establish administrative credentials writing directly to PostgreSQL.</p>
           </div>
 
           {error && (
@@ -146,6 +145,25 @@ const SignupPage = () => {
                 />
               </div>
             </div>
+
+            {formData.role === 'admin' && (
+              <div className="space-y-1 animate-in slide-in-from-top-2 duration-300">
+                <label className="text-sm font-medium text-primary-400">Admin Passkey</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Lock size={18} className="text-primary-500" />
+                  </div>
+                  <input 
+                    type="password" 
+                    required
+                    value={formData.passkey || ''}
+                    onChange={e => setFormData({...formData, passkey: e.target.value})}
+                    className="w-full pl-11 pr-4 py-3 bg-surface border border-primary-500/30 rounded-xl text-white focus:outline-none focus:border-primary-500 transition-colors shadow-lg shadow-primary-500/5" 
+                    placeholder="Enter Secret Key"
+                  />
+                </div>
+              </div>
+            )}
 
             <button 
               type="submit" 

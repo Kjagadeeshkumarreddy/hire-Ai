@@ -11,7 +11,8 @@ from app.middleware.auth import verify_token, RoleChecker
 import structlog
 
 logger = structlog.get_logger()
-hr_only = RoleChecker(["admin", "hr"])
+hr_only = RoleChecker(["hr"])
+oversight_only = RoleChecker(["admin", "hr"])
 
 router = APIRouter(prefix="/scores", tags=["Scoring"])
 
@@ -22,11 +23,16 @@ async def trigger_scoring(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(hr_only)
 ):
-    """Trigger the agentic scoring pipeline for all candidates under a job."""
-    # Verify job exists
+    """Trigger scoring pipeline verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+
+    # Verify job exists and ownership
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if user_role != "admin" and job.created_by != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized access to this scoring node.")
 
     # Fetch candidates that haven't been scored yet for this job
     stmt = (
@@ -101,13 +107,19 @@ async def get_candidate_ranking(
     job_id: UUID,
     bias_free: bool = Query(False, description="Enable bias-free anonymized view"),
     limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(oversight_only)
 ):
-    """Fetch descending ranking list of scored candidates for a job."""
-    # Check if job has bias-free enabled
+    """Fetch ranking list verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+
+    # Check job ownership
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if user_role != "admin" and job.created_by != user_id:
+        raise HTTPException(status_code=403, detail="Ranking access denied. Ownership mismatch.")
 
     use_bias_free = bias_free or job.bias_free_enabled
 
@@ -156,10 +168,15 @@ async def update_scoring_config(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(hr_only)
 ):
-    """Update scoring configuration (weights, top_n, bias_free) for a job."""
+    """Update scoring config verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if user_role != "admin" and job.created_by != user_id:
+        raise HTTPException(status_code=403, detail="Config update rejected.")
 
     # Update job scoring config
     job.scoring_config = {"weights": config.weights, "updated_by": user.get("sub")}
@@ -195,15 +212,24 @@ async def update_scoring_config(
 @router.get("/{candidate_id}/breakdown")
 async def get_score_breakdown(
     candidate_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(oversight_only)
 ):
-    """Retrieve detailed score breakdown for a specific candidate."""
+    """Retrieve score breakdown verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+
     stmt = select(Score).where(Score.candidate_id == candidate_id).order_by(Score.created_at.desc())
     result = await db.execute(stmt)
     score = result.scalars().first()
 
     if not score:
         raise HTTPException(status_code=404, detail="No score found for this candidate")
+
+    # Verify ownership of the job associated with the score
+    job = await db.get(Job, score.job_id)
+    if user_role != "admin" and (not job or job.created_by != user_id):
+        raise HTTPException(status_code=403, detail="Score data access restricted.")
 
     return {
         "candidate_id": str(candidate_id),

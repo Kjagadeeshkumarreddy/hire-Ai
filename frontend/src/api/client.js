@@ -21,7 +21,8 @@ apiClient.interceptors.response.use(
     const originalRequest = error.config;
     
     // Auto-login Refresh loop hook gracefully skipping infinite repeats
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Do NOT trigger logout logic for the login endpoint itself flawlessly
+    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login')) {
       originalRequest._retry = true;
       
       const refreshToken = Cookies.get('refresh_token');

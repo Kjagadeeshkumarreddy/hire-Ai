@@ -28,8 +28,11 @@ from app.db.models import Job, Candidate, Resume, Score, GitHubAnalysis, JDVersi
 from .service import generate_email_draft
 from app.core.mailer import send_email
 
-hr_only = RoleChecker(["admin", "hr"])
-router = APIRouter(prefix="/candidates", tags=["Candidates"], dependencies=[Depends(hr_only)])
+# Role-based access control bounds flawlessy
+hr_only = RoleChecker(["hr"])
+oversight_only = RoleChecker(["admin", "hr"])
+
+router = APIRouter(prefix="/candidates", tags=["Candidates"])
 
 import io
 import zipfile
@@ -44,7 +47,7 @@ async def upload_candidates(
     excel_file: UploadFile = File(...), 
     zip_file: UploadFile = File(...), # Transitioning from List[PDF] to single ZIP flawlessly
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(verify_token)
+    user: dict = Depends(hr_only)
 ):
     """Bulk upload candidates via Excel + Zip archive mapped by email address."""
     # 0. Ensure Job exists (supports auto-simulation mapping)
@@ -186,25 +189,50 @@ async def upload_candidates(
         estimated_time_seconds=300
     )
 
-async def resolve_job_id(job_id: str, db: AsyncSession) -> UUID:
-    """Helper to handle frontend hardcoded strings flawlessly."""
+async def verify_candidate_ownership(candidate_id: UUID, db: AsyncSession, user_id: UUID, user_role: str):
+    """Helper to verify that a candidate belongs to a job owned by the user flawlessy."""
+    stmt = select(Job).join(Candidate, Candidate.job_id == Job.id).where(Candidate.id == candidate_id)
+    res = await db.execute(stmt)
+    job = res.scalars().first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Candidate or associated job not found.")
+    if user_role != "admin" and job.created_by != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized access to this candidate node.")
+    return job
+
+async def resolve_job_id(job_id: str, db: AsyncSession, user_id: UUID, user_role: str) -> UUID:
+    """Helper to handle frontend hardcoded strings flawlessly while enforcing ownership security."""
     if job_id == "default-job":
-        # Fetch most recent job mapping natively
-        stmt = select(Job).order_by(Job.created_at.desc()).limit(1)
+        # Fetch most recent job owned by this user flawlessly
+        stmt = select(Job)
+        if user_role != "admin":
+            stmt = stmt.where(Job.created_by == user_id)
+        stmt = stmt.order_by(Job.created_at.desc()).limit(1)
+        
         res = await db.execute(stmt)
         job = res.scalar_one_or_none()
         if not job:
-            raise HTTPException(status_code=404, detail="No jobs found in system.")
+            raise HTTPException(status_code=404, detail="No authorized jobs found in system.")
         return job.id
+    
     try:
-        return UUID(job_id)
+        jid = UUID(job_id)
+        # Verify ownership for explicit IDs to prevent cross-tenant data leakage flawlessly
+        job = await db.get(Job, jid)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found.")
+        if user_role != "admin" and job.created_by != user_id:
+            raise HTTPException(status_code=403, detail="Access denied to this job context.")
+        return jid
     except (ValueError, AttributeError):
         raise HTTPException(status_code=422, detail=f"Invalid job ID mapping: {job_id}")
 
 @router.get("/{job_id}/list", response_model=List[CandidateDetailResponse])
-async def list_candidates(job_id: str, db: AsyncSession = Depends(get_db)):
-    """Retrieve exhaustive candidate profiles for a job flawlessly."""
-    resolved_id = await resolve_job_id(job_id, db)
+async def list_candidates(job_id: str, db: AsyncSession = Depends(get_db), user: dict = Depends(oversight_only)):
+    """Retrieve exhaustive candidate profiles for a job flawlessly, with oversight support."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    resolved_id = await resolve_job_id(job_id, db, user_id, user_role)
     stmt = select(Candidate).where(Candidate.job_id == resolved_id)
     result = await db.execute(stmt)
     candidates = result.scalars().all()
@@ -244,9 +272,11 @@ async def list_candidates(job_id: str, db: AsyncSession = Depends(get_db)):
     return responses
 
 @router.get("/{job_id}/summary-cards", response_model=List[CandidateSummary])
-async def get_summary_cards(job_id: str, db: AsyncSession = Depends(get_db)):
-    """Fetch raw summarized candidate data (frontend handles cards visualization)."""
-    resolved_id = await resolve_job_id(job_id, db)
+async def get_summary_cards(job_id: str, db: AsyncSession = Depends(get_db), user: dict = Depends(oversight_only)):
+    """Fetch summarized candidate data verifying oversight flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    resolved_id = await resolve_job_id(job_id, db, user_id, user_role)
     stmt = (
         select(Candidate, Resume, Score)
         .outerjoin(Resume, Resume.candidate_id == Candidate.id)
@@ -269,10 +299,12 @@ async def get_summary_cards(job_id: str, db: AsyncSession = Depends(get_db)):
     return summaries
 
 @router.post("/{job_id}/compare", response_model=CandidatesCompareResponse)
-async def compare_candidates(job_id: str, request: CandidatesCompareRequest, db: AsyncSession = Depends(get_db)):
-    """Fetch raw cross-axis comparison data between multiple candidates."""
+async def compare_candidates(job_id: str, request: CandidatesCompareRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(verify_token)):
+    """Fetch cross-axis comparison data verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
     # Resolved ID for consistent mapping although ids are in request
-    await resolve_job_id(job_id, db)
+    await resolve_job_id(job_id, db, user_id, user_role)
     # 1. Fetch summaries for requested candidates
     stmt = (
         select(Candidate, Resume, Score)
@@ -315,8 +347,11 @@ from .investigation_service import InvestigationService
 from sqlalchemy import func
 
 @router.get("/{candidate_id}", response_model=CandidateDetailResponse)
-async def candidate_detail(candidate_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Fetch exhaustive candidate profile including AI enrichments flawlessly."""
+async def candidate_detail(candidate_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(oversight_only)):
+    """Fetch exhaustive candidate profile verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    await verify_candidate_ownership(candidate_id, db, user_id, user_role)
     # 1. Joins against Score, Resume, and GitHubAnalysis tables mapping flawlessly
     stmt = select(Candidate).where(Candidate.id == candidate_id)
     result = await db.execute(stmt)
@@ -358,8 +393,11 @@ async def candidate_detail(candidate_id: UUID, db: AsyncSession = Depends(get_db
     )
 
 @router.post("/{candidate_id}/investigate")
-async def investigate_candidate(candidate_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Manually trigger the deep-dive Investigation Agent and stream 'thoughts' flawlessly."""
+async def investigate_candidate(candidate_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(hr_only)):
+    """Trigger Investigation Agent verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    await verify_candidate_ownership(candidate_id, db, user_id, user_role)
     logger.info("investigation.api_call_received", candidate_id=str(candidate_id))
     service = InvestigationService(db)
     return StreamingResponse(
@@ -368,8 +406,11 @@ async def investigate_candidate(candidate_id: UUID, db: AsyncSession = Depends(g
     )
 
 @router.patch("/{candidate_id}/shortlist")
-async def toggle_shortlist(candidate_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Toggle shortlisted status."""
+async def toggle_shortlist(candidate_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(hr_only)):
+    """Toggle shortlisted status verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    await verify_candidate_ownership(candidate_id, db, user_id, user_role)
     stmt = select(Candidate).where(Candidate.id == candidate_id)
     res = await db.execute(stmt)
     cand = res.scalar_one_or_none()
@@ -385,8 +426,10 @@ async def bulk_shortlist(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(verify_token)
 ):
-    """HITL bulk approval endpoint mapping flawlessly."""
-    resolved_id = await resolve_job_id(job_id, db)
+    """HITL bulk approval endpoint verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    resolved_id = await resolve_job_id(job_id, db, user_id, user_role)
     stmt = (
         update(Candidate)
         .where(Candidate.id.in_(candidate_ids))
@@ -402,8 +445,11 @@ async def bulk_shortlist(
     return {"status": "success", "count": len(candidate_ids)}
 
 @router.get("/{candidate_id}/email-draft", response_model=EmailDraftResponse)
-async def get_email_draft(candidate_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Generate an AI-powered personalized email draft flawlessly."""
+async def get_email_draft(candidate_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(hr_only)):
+    """Generate an AI email draft verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    await verify_candidate_ownership(candidate_id, db, user_id, user_role)
     return await generate_email_draft(candidate_id, db)
 
 @router.post("/{candidate_id}/send-email")
@@ -453,22 +499,31 @@ async def send_candidate_email(
         raise HTTPException(status_code=500, detail="Failed to deliver email through SMTP.")
 
 @router.post("/{job_id}/bulk-investigate")
-async def bulk_investigate(job_id: str, db: AsyncSession = Depends(get_db)):
-    """Trigger the full agentic ingestion pipeline orchestration and stream 'thoughts' flawlessly."""
+async def bulk_investigate(job_id: str, db: AsyncSession = Depends(get_db), user: dict = Depends(hr_only)):
+    """Trigger ingestion pipeline verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    await resolve_job_id(job_id, db, user_id, user_role)
     service = InvestigationService(db)
     return StreamingResponse(
         service.stream_bulk_investigation(job_id),
         media_type="text/event-stream"
     )
 @router.post("/{candidate_id}/questions")
-async def generate_questions(candidate_id: UUID, category: str = "technical", db: AsyncSession = Depends(get_db)):
-    """Trigger the AI Forge to generate categorized interview questions flawlessly."""
+async def generate_questions(candidate_id: UUID, category: str = "technical", db: AsyncSession = Depends(get_db), user: dict = Depends(hr_only)):
+    """Trigger Question Forge verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    await verify_candidate_ownership(candidate_id, db, user_id, user_role)
     from .service import generate_interview_questions
     return await generate_interview_questions(candidate_id, db, category=category)
 
 @router.get("/{candidate_id}/questions")
-async def get_questions(candidate_id: UUID, category: str = "technical", db: AsyncSession = Depends(get_db)):
-    """Retrieve existing interview questions for a candidate flawlessly."""
+async def get_questions(candidate_id: UUID, category: str = "technical", db: AsyncSession = Depends(get_db), user: dict = Depends(oversight_only)):
+    """Retrieve interview questions verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    await verify_candidate_ownership(candidate_id, db, user_id, user_role)
     from app.db.models import InterviewQuestion
     stmt = (
         select(InterviewQuestion)
@@ -485,11 +540,12 @@ async def promote(
     candidate_ids: List[UUID], 
     round_name: str, 
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(verify_token)
+    user: dict = Depends(hr_only)
 ):
-    """Promote candidates to a new round (Technical, HR, etc.) flawlessly."""
-    from .service import promote_candidates
-    resolved_id = await resolve_job_id(job_id, db)
+    """Promote candidates to a new round verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    resolved_id = await resolve_job_id(job_id, db, user_id, user_role)
     user_id = UUID(user.get("sub"))
     
     job_status = "offer" if round_name == "Generate Offer Letter" else "active"
@@ -500,9 +556,12 @@ async def send_offer_letter(
     candidate_id: UUID, 
     request: OfferSendRequest, 
     db: AsyncSession = Depends(get_db),
-    user_payload: dict = Depends(verify_token)
+    user_payload: dict = Depends(hr_only)
 ):
-    """Generate a PDF dossier and release electronically to the candidate flawlessly."""
+    """Generate a PDF dossier and release electronically verifying ownership flawlessly."""
+    user_id = UUID(user_payload.get("sub"))
+    user_role = user_payload.get("role")
+    await verify_candidate_ownership(candidate_id, db, user_id, user_role)
     from app.utils.pdf_generator import generate_pdf
     from app.core.mailer import send_email
     from app.db.models import User
@@ -577,9 +636,12 @@ async def save_offer_letter(
     candidate_id: UUID,
     request: SavedOfferSaveRequest,
     db: AsyncSession = Depends(get_db),
-    user_payload: dict = Depends(verify_token)
+    user_payload: dict = Depends(hr_only)
 ):
-    """Save the progress of an offer letter draft flawlessly."""
+    """Save the progress of an offer letter draft verifying ownership flawlessly."""
+    user_id = UUID(user_payload.get("sub"))
+    user_role = user_payload.get("role")
+    await verify_candidate_ownership(candidate_id, db, user_id, user_role)
     user_id = UUID(user_payload.get("sub"))
     
     # Check if a saved offer already exists for this candidate/job combo flawlessly (idempotent save)

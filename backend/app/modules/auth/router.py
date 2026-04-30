@@ -5,28 +5,43 @@ from sqlalchemy.future import select
 from pydantic import BaseModel, EmailStr, Field
 import bcrypt
 from typing import Optional
-from app.middleware.auth import verify_token
+from app.middleware.auth import verify_token, RoleChecker
 
 from app.db.session import get_db
 from app.db.models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+hr_only = RoleChecker(["hr"])
 
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
     full_name: str
     role: Optional[str] = "admin"
+    passkey: Optional[str] = None
+
+from app.config import settings
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register_user(payload: UserRegister, db: AsyncSession = Depends(get_db)):
-    # Check if user already exists
-    stmt = select(User).where(User.email == payload.email)
+    # 1. Admin Passkey Validation flawlessy
+    if payload.role == "admin":
+        if not payload.passkey or payload.passkey.strip() != settings.admin_passkey:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Invalid administrative passkey. Authorization denied."
+            )
+
+    # 2. Check if user already exists with this role flawlessly
+    stmt = select(User).where(User.email == payload.email, User.role == payload.role)
     result = await db.execute(stmt)
     if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Email already strictly registered inside the grid.")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"This identity is already registered as a {payload.role}."
+        )
     
-    # Hash password correctly using raw bcrypt bypassing passlib bugs natively
+    # 3. Hash password correctly using raw bcrypt bypassing passlib bugs natively
     salt = bcrypt.gensalt()
     hashed_password = bcrypt.hashpw(payload.password.encode('utf-8'), salt).decode('utf-8')
     
@@ -46,6 +61,7 @@ async def register_user(payload: UserRegister, db: AsyncSession = Depends(get_db
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+    role: str
 
 class EmailUpdate(BaseModel):
     current_password: str
@@ -64,12 +80,12 @@ from app.core.security import create_access_token, create_refresh_token, decode_
 
 @router.post("/login", status_code=status.HTTP_200_OK)
 async def login_user(payload: UserLogin, db: AsyncSession = Depends(get_db)):
-    stmt = select(User).where(User.email == payload.email)
+    stmt = select(User).where(User.email == payload.email, User.role == payload.role)
     result = await db.execute(stmt)
     user = result.scalars().first()
     
     if not user or not bcrypt.checkpw(payload.password.encode('utf-8'), user.hashed_password.encode('utf-8')):
-        raise HTTPException(status_code=401, detail="Invalid credential parameters.")
+        raise HTTPException(status_code=401, detail="Invalid credential parameters for this role.")
         
     access_token = create_access_token(subject=user.id, role=user.role)
     refresh_token = create_refresh_token(subject=user.id)
@@ -170,7 +186,7 @@ async def update_user_email(
 @router.get("/me/smtp", status_code=status.HTTP_200_OK)
 async def get_smtp_settings(
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(hr_only)
 ):
     """Retrieve personal SMTP configuration parameters flawlessly."""
     user_id = current_user.get("sub")
@@ -192,7 +208,7 @@ async def get_smtp_settings(
 async def update_smtp_settings(
     payload: SMTPSettingsUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(hr_only)
 ):
     """Update personal SMTP credentials for outbound hiring campaigns flawlessly."""
     user_id = current_user.get("sub")

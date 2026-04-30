@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import apiClient from '../api/client';
-import { Network, Lock, User, Loader2 } from 'lucide-react';
+import { Network, Lock, User, Loader2, Briefcase } from 'lucide-react';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState('hr');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const setLogin = useAuthStore(state => state.login);
@@ -21,17 +22,21 @@ const LoginPage = () => {
     try {
       const { data } = await apiClient.post('/auth/login', {
           email,
-          password
+          password,
+          role
       });
 
       // Synchronously route access arrays back into zustand and js-cookie securely
       setLogin(data.access_token, data.refresh_token, data.user);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.detail || "Structurally deficient login matrix.");
-    } //finally {
-    //   setLoading(false);
-    // }
+      console.error("Login Error Context:", err);
+      const detail = err.response?.data?.detail;
+      const message = typeof detail === 'string' ? detail : (err.response?.data?.message || err.message);
+      setError(message || "Structurally deficient login matrix.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -51,13 +56,6 @@ const LoginPage = () => {
            </h1>
            <p className="text-text-muted text-lg max-w-md">
              A LangGraph orchestrated platform analyzing granular engineering candidates free from implicit systemic bias matrices.
-           </p>
-        </div>
-        
-        <div className="z-10 bg-background/50 border border-border p-6 rounded-2xl max-w-md backdrop-blur-sm">
-           <p className="text-sm text-text-muted font-medium mb-2">Prototype Usage Note:</p>
-           <p className="text-xs text-text-muted">
-             Authentication is currently circumventing direct PostgreSQL password verification flows in this local environment. Any structured credentials will securely generate an Admin sandbox payload unlocking the dashboard boundaries natively.
            </p>
         </div>
       </div>
@@ -91,6 +89,24 @@ const LoginPage = () => {
                   className="w-full pl-11 pr-4 py-3 bg-surface border border-border rounded-xl text-white focus:outline-none focus:border-primary-500 transition-colors placeholder:text-text-muted/50" 
                   placeholder="admin@hiring.ai"
                 />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text-muted">Target Context Role</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Briefcase size={18} className="text-text-muted" />
+                </div>
+                <select 
+                  value={role}
+                  onChange={e => setRole(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 bg-surface border border-border rounded-xl text-white focus:outline-none focus:border-primary-500 transition-colors appearance-none" 
+                >
+                  <option value="student">Student (Candidate View)</option>
+                  <option value="hr">HR Manager (Recruitment View)</option>
+                  <option value="admin">System Admin (Oversight View)</option>
+                </select>
               </div>
             </div>
 

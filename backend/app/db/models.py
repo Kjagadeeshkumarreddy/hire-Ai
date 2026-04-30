@@ -12,7 +12,7 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=func.gen_random_uuid())
-    email = Column(String(255), unique=True, nullable=False)
+    email = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False) # admin, hr, student, company, viewer
@@ -24,6 +24,10 @@ class User(Base):
     is_active = Column(Boolean, server_default='true')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('email', 'role', name='uq_user_email_role'),
+    )
 
 class Job(Base):
     __tablename__ = "jobs"

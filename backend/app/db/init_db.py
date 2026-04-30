@@ -4,6 +4,7 @@ from psycopg import sql
 from app.config import settings
 from app.db.session import engine
 from app.db.models import Base
+from sqlalchemy import text
 import structlog
 
 logger = structlog.get_logger()
@@ -49,8 +50,28 @@ async def init_models(max_retries=3):
                 raise
             await asyncio.sleep(2 * attempt)  # Backoff: 2s, 4s, 6s
 
+async def enforce_rls():
+    """ Automatically enable Row Level Security on all critical tables for Supabase protection. """
+    tables = [
+        "users", "jobs", "candidates", "jd_versions", "scores", 
+        "resumes", "audit_logs", "github_analysis", "interview_questions", 
+        "pipeline_runs", "email_logs", "saved_offer_letters", "student_assessments",
+        "checkpoint_migrations", "checkpoints", "checkpoint_writes", "checkpoint_blobs"
+    ]
+    
+    try:
+        async with engine.begin() as conn:
+            for table in tables:
+                # Idempotent RLS activation flawlessly
+                await conn.execute(text(f"ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY;"))
+            logger.info("database.rls_enforcement_complete")
+    except Exception as e:
+        # Ignore errors if tables don't exist yet (init_models handles creation)
+        logger.warning("database.rls_enforcement_skipped", error=str(e))
+
 async def setup_database():
     """ entry point for database setup on startup. """
     ensure_db_exists()
     await init_models()
+    await enforce_rls()
 

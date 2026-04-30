@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from typing import List, Optional, Any
 import uuid
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.middleware.auth import RoleChecker
@@ -12,49 +12,62 @@ from .schemas import (
     DashboardActivityResponse, ActivityItem
 )
 from app.agents.graph import get_compiled_graph
-from app.db.models import Job, JDVersion, Candidate, AuditLog
+from app.db.models import (
+    Job, JDVersion, Candidate, AuditLog, Resume, 
+    Score, GitHubAnalysis, InterviewQuestion, 
+    PipelineRun, EmailLog, SavedOffer
+)
 from sqlalchemy import func
 from app.modules.candidates.service import generate_bulk_email_draft, send_bulk_emails, generate_offer_template
 
-# Restricting to human resource mapping parameters
-hr_only = RoleChecker(["admin", "hr"])
+# Role-based access control bounds
+hr_only = RoleChecker(["hr"])
+oversight_only = RoleChecker(["admin", "hr"])
 router = APIRouter(prefix="/jd", tags=["Job Descriptions"])
 
 @router.get("/dashboard/stats", response_model=DashboardStatsResponse)
 async def get_dashboard_stats(
     db: AsyncSession = Depends(get_db),
+    user: dict = Depends(oversight_only),
     job_id: Optional[UUID] = Query(None)
 ):
-    """Aggregate hiring statistics flawlessly, supporting optional role-based filtering."""
-    # 1. Total Candidates
-    candidate_count_stmt = select(func.count(Candidate.id))
+    """Aggregate hiring statistics flawlessly, supporting strict ownership filtering."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    # Base condition for non-admins flawlessy
+    ownership_filter = (Job.created_by == user_id) if user_role != "admin" else True
+
+    # 1. Total Candidates (via Jobs owned by user)
+    candidate_count_stmt = select(func.count(Candidate.id)).join(Job, Job.id == Candidate.job_id).where(ownership_filter)
     if job_id:
         candidate_count_stmt = candidate_count_stmt.where(Candidate.job_id == job_id)
     candidate_count = (await db.execute(candidate_count_stmt)).scalar() or 0
     
     # 2. Active Job Count
-    active_job_stmt = select(func.count(Job.id)).where(Job.status == "active")
+    active_job_stmt = select(func.count(Job.id)).where(Job.status == "active").where(ownership_filter)
     if job_id:
         active_job_stmt = active_job_stmt.where(Job.id == job_id)
     active_job_count = (await db.execute(active_job_stmt)).scalar() or 0
     
-    # 3. Interviews Pending (Shortlisted)
-    pending_stmt = select(func.count(Candidate.id)).where(Candidate.is_shortlisted == True)
+    # 3. Interviews Pending (Shortlisted via owned Jobs)
+    pending_stmt = select(func.count(Candidate.id)).join(Job, Job.id == Candidate.job_id).where(Candidate.is_shortlisted == True).where(ownership_filter)
     if job_id:
         pending_stmt = pending_stmt.where(Candidate.job_id == job_id)
     pending_count = (await db.execute(pending_stmt)).scalar() or 0
     
-    # 4. Action Required (Draft JDs awaiting approval)
-    action_stmt = select(func.count(JDVersion.id)).where(JDVersion.status == "draft")
+    # 4. Action Required (Draft JDs for owned Jobs)
+    action_stmt = select(func.count(JDVersion.id)).join(Job, Job.id == JDVersion.job_id).where(JDVersion.status == "draft").where(ownership_filter)
     if job_id:
         action_stmt = action_stmt.where(JDVersion.job_id == job_id)
     action_count = (await db.execute(action_stmt)).scalar() or 0
     
-    # 5. Recent HITL Approvals (Latest 5 drafts)
+    # 5. Recent HITL Approvals (Latest 5 drafts for owned jobs)
     recent_stmt = (
         select(JDVersion, Job.title)
         .join(Job, Job.id == JDVersion.job_id)
         .where(JDVersion.status == "draft")
+        .where(ownership_filter)
     )
     if job_id:
         recent_stmt = recent_stmt.where(JDVersion.job_id == job_id)
@@ -83,13 +96,20 @@ async def get_dashboard_stats(
 @router.get("/dashboard/activity", response_model=DashboardActivityResponse)
 async def get_dashboard_activity(
     db: AsyncSession = Depends(get_db),
+    user: dict = Depends(oversight_only),
     job_id: Optional[UUID] = Query(None)
 ):
-    """Fetch recent JD-related activities for the pipeline dashboard flawlessly, with optional filtering."""
+    """Fetch recent JD-related activities for the pipeline dashboard flawlessly, with strict owner filtering."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    ownership_filter = (Job.created_by == user_id) if user_role != "admin" else True
+
     stmt = (
         select(AuditLog, Job.title)
         .join(Job, Job.id == AuditLog.job_id)
         .where(AuditLog.action.in_(["jd_generated", "jd_refined", "jd_approved"]))
+        .where(ownership_filter)
     )
     if job_id:
         stmt = stmt.where(AuditLog.job_id == job_id)
@@ -118,7 +138,7 @@ from datetime import datetime
 async def generate_jd(
     request: JDGenerateRequest, 
     db: AsyncSession = Depends(get_db), 
-    user: dict = Depends(verify_token)
+    user: dict = Depends(hr_only)
 ):
     """Generate a new JD via Groq LLM utilizing LangGraph trigger constraints."""
     # 1. Persist Job record first to obtain a consistent thread_id mapping natively
@@ -190,7 +210,7 @@ async def generate_jd(
         )
 
 @router.post("/{job_id}/improve", response_model=JDVersionResponse)
-async def improve_jd(job_id: UUID, request: JDImproveRequest, db: AsyncSession = Depends(get_db)):
+async def improve_jd(job_id: UUID, request: JDImproveRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(hr_only)):
     """Improve an existing JD via GroqLLM refinement loop."""
     config = {"configurable": {"thread_id": str(job_id)}}
     
@@ -247,16 +267,33 @@ async def improve_jd(job_id: UUID, request: JDImproveRequest, db: AsyncSession =
         )
 
 @router.get("/jobs", response_model=List[JobSimpleResponse])
-async def list_jobs(db: AsyncSession = Depends(get_db)):
-    """Retrieve all active jobs flawlessly."""
-    stmt = select(Job).order_by(Job.created_at.desc())
+async def list_jobs(db: AsyncSession = Depends(get_db), user: dict = Depends(oversight_only)):
+    """Retrieve all jobs owned by the user flawlessy, or all if admin."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    stmt = select(Job)
+    if user_role != "admin":
+        stmt = stmt.where(Job.created_by == user_id)
+        
+    stmt = stmt.order_by(Job.created_at.desc())
     res = await db.execute(stmt)
     jobs = res.scalars().all()
     return jobs
 
 @router.get("/{job_id}/content", response_model=JDVersionResponse)
-async def get_jd_content(job_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Retrieve the latest approved JD content for a specific job."""
+async def get_jd_content(job_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(oversight_only)):
+    """Retrieve the latest approved JD content for a specific job, verifying ownership."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    # Verify job ownership flawlessy
+    job = await db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if user_role != "admin" and job.created_by != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized access to this job data matrix.")
+
     stmt = select(JDVersion).where(JDVersion.job_id == job_id).order_by(JDVersion.version.desc())
     res = await db.execute(stmt)
     jd_v = res.scalars().first()
@@ -265,19 +302,17 @@ async def get_jd_content(job_id: UUID, db: AsyncSession = Depends(get_db)):
     return jd_v
 
 @router.delete("/{job_id}")
-async def delete_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Fast cascading deletion of a job and all child records using batch SQL."""
-    from app.db.models import (
-        Candidate, Resume, Score, GitHubAnalysis,
-        InterviewQuestion, PipelineRun, AuditLog,
-        EmailLog, JDVersion, SavedOffer
-    )
-    from sqlalchemy import delete, text
-
-    # 1. Verify job exists
+async def delete_job(job_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(hr_only)):
+    """Fast cascading deletion of a job verifying ownership flawlessy."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    # 1. Verify job exists and ownership flawlessy
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
+    if user_role != "admin" and job.created_by != user_id:
+        raise HTTPException(status_code=403, detail="Deletion rejected. Ownership mismatch detected.")
 
     # 2. Build candidate subquery once (used by all child deletes)
     candidate_sub = select(Candidate.id).where(Candidate.job_id == job_id).scalar_subquery()
@@ -312,8 +347,15 @@ async def delete_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
     return {"status": "success", "message": f"Job {job_id} deleted successfully."}
 
 @router.get("/{job_id}/versions", response_model=List[JDVersionResponse])
-async def list_jd_versions(job_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Retrieve all history versions of JD for a job."""
+async def list_jd_versions(job_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(oversight_only)):
+    """Retrieve all history versions of JD for a job, verifying ownership."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    job = await db.get(Job, job_id)
+    if not job or (user_role != "admin" and job.created_by != user_id):
+        raise HTTPException(status_code=403, detail="History access denied.")
+
     stmt = select(JDVersion).where(JDVersion.job_id == job_id).order_by(JDVersion.version.desc())
     res = await db.execute(stmt)
     return res.scalars().all()
@@ -324,7 +366,17 @@ async def approve_jd(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(verify_token)
 ):
-    """HITL Approve a JD version, marking it as the active approved version."""
+    """HITL Approve a JD version verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    # Ownership Check
+    job = await db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if user_role != "admin" and job.created_by != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized approval attempt.")
+
     stmt = select(JDVersion).where(
         JDVersion.job_id == job_id,
         JDVersion.version == version
@@ -362,7 +414,17 @@ async def reject_jd(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(verify_token)
 ):
-    """HITL Reject a JD version, requiring re-generation."""
+    """HITL Reject a JD version verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    # Ownership Check
+    job = await db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if user_role != "admin" and job.created_by != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized rejection attempt.")
+
     stmt = select(JDVersion).where(
         JDVersion.job_id == job_id,
         JDVersion.version == version
@@ -399,10 +461,21 @@ from .schemas import (
 async def get_bulk_email_draft(
     id: UUID,
     request: BulkEmailDraftRequest = Body(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(verify_token)
 ):
-    """Generate or refine a bulk outreach template for a specific job flawlessly."""
+    """Generate or refine a bulk outreach template verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    job = await db.get(Job, id)
+    if not job or (user_role != "admin" and job.created_by != user_id):
+        raise HTTPException(status_code=403, detail="Access to campaign drafts denied.")
+
     return await generate_bulk_email_draft(id, db, request.adjustments, request.previous_content)
+
+from app.modules.candidates.service import generate_bulk_email_draft, send_bulk_emails, generate_offer_template, refine_offer_template
+from app.modules.candidates.schemas import OfferRefineRequest
 
 @router.post("/{id}/bulk-send")
 async def bulk_send_emails(
@@ -412,19 +485,45 @@ async def bulk_send_emails(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(verify_token)
 ):
-    """Blast the final approved template to all shortlisted candidates for this job."""
-    # Passing the logged-in user's ID to fetch correct SMTP creds flawlessly
+    """Execute bulk email campaign verifying ownership flawlessly."""
     user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    job = await db.get(Job, id)
+    if not job or (user_role != "admin" and job.created_by != user_id):
+        raise HTTPException(status_code=403, detail="Campaign execution denied.")
+
     return await send_bulk_emails(id, subject, body, db, user_id=user_id)
-from app.modules.candidates.service import generate_bulk_email_draft, send_bulk_emails, generate_offer_template, refine_offer_template
-from app.modules.candidates.schemas import OfferRefineRequest
 
 @router.post("/{id}/offer-template")
-async def get_offer_template(id: UUID, db: AsyncSession = Depends(get_db)):
-    """Generate a master offer letter template for a job role flawlessly."""
+async def get_offer_template(
+    id: UUID, 
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(verify_token)
+):
+    """Generate a master offer letter template verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    job = await db.get(Job, id)
+    if not job or (user_role != "admin" and job.created_by != user_id):
+        raise HTTPException(status_code=403, detail="Template generation denied.")
+
     return await generate_offer_template(id, db)
 
 @router.post("/{id}/offer-template/refine")
-async def refine_template(id: UUID, request: OfferRefineRequest = Body(...), db: AsyncSession = Depends(get_db)):
-    """Refine a master offer letter template based on user feedback via conversational AI."""
-    return await refine_offer_template(id, request.current_html, request.feedback, db)
+async def get_refined_offer_template(
+    id: UUID, 
+    request: OfferRefineRequest,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(verify_token)
+):
+    """Refine offer template verifying ownership flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    job = await db.get(Job, id)
+    if not job or (user_role != "admin" and job.created_by != user_id):
+        raise HTTPException(status_code=403, detail="Refinement denied.")
+
+    return await refine_offer_template(id, request.html, request.feedback, db)

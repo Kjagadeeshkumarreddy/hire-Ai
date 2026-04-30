@@ -17,6 +17,7 @@ import StudentDashboard from './pages/StudentDashboard';
 import StudentHistoryPage from './pages/StudentHistoryPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
+import AdminDashboardPage from './pages/AdminDashboardPage';
 import { useAuthStore } from './stores/authStore';
 
 const queryClient = new QueryClient();
@@ -72,6 +73,7 @@ const App = () => {
             <Route path="offer-letter" element={<OfferLetterPage />} />
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="admin/dashboard" element={<AdminDashboardPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

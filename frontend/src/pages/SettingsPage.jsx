@@ -27,7 +27,7 @@ const SettingsPage = () => {
   const [smtpStatus, setSmtpStatus] = useState(null); // { success: bool, message: str }
 
   React.useEffect(() => {
-    if (user?.role !== 'student') {
+    if (user?.role === 'hr') {
       fetchSmtpSettings();
     }
   }, [user]);
@@ -181,15 +181,15 @@ const SettingsPage = () => {
             </div>
           </div>
  
-          {/* Email Outbound Configuration Card - Restricted from Student View flawlessly */}
-          {user?.role !== 'student' && (
+          {/* Email Outbound Configuration Card - Restricted to HR ONLY flawlessly */}
+          {user?.role === 'hr' && (
             <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-xl shadow-black/20 animate-in fade-in slide-in-from-bottom-2 duration-500 delay-150 mt-8">
               <div className="p-6 border-b border-border bg-gradient-to-r from-surface to-white/5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-primary-500/10 rounded-lg text-primary-500">
                     <Send size={20} />
                   </div>
-                  <h3 className="font-bold text-lg text-white">Outbound Email Architecture</h3>
+                  <h3 className="font-bold text-lg text-white">Personal Outreach Architecture</h3>
                 </div>
                 {isSmtpLoading && <div className="text-[10px] font-black uppercase text-text-muted animate-pulse">Loading Config...</div>}
               </div>

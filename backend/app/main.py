@@ -33,7 +33,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"] if "*" in settings.ALLOWED_ORIGINS else settings.ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -85,8 +85,10 @@ def create_app() -> FastAPI:
     from app.modules.audit.router import router as audit_router
     from app.modules.auth.router import router as auth_router
     from app.modules.students.router import router as students_router
+    from app.modules.admin.router import router as admin_router
     
     app.include_router(auth_router, prefix=settings.API_V1_STR)
+    app.include_router(admin_router, prefix=settings.API_V1_STR)
     app.include_router(jd_router, prefix=settings.API_V1_STR)
     app.include_router(candidates_router, prefix=settings.API_V1_STR)
     app.include_router(scoring_router, prefix=settings.API_V1_STR)
