@@ -1,17 +1,35 @@
+import { useTranslation } from 'react-i18next';
 import React, { useState } from 'react';
-import { ChevronDown, Briefcase, Eye, Trash2, X, AlertOctagon } from 'lucide-react';
+import { ChevronDown, Briefcase, Eye, Trash2, X } from 'lucide-react';
 import { useJobList, useJDMutations } from '../../hooks/useJD';
 import { jdApi } from '../../api/jd';
 import ReactMarkdown from 'react-markdown';
 
-export const JobSelector = ({ activeJobId, onSelect, filterType = 'all', showAllOption = false }) => {
+export const JobSelector = ({ activeJobId, onSelect, filterType = 'all', showAllOption = false, hideSubRoles = false }) => {
+  const { t } = useTranslation();
   const { data: jobs = [], isLoading } = useJobList();
   const { deleteJob } = useJDMutations();
   const activeJob = jobs.find(j => j.id === activeJobId);
   const filteredJobs = jobs.filter(job => {
-    if (filterType === 'offer') return job.status === 'offer';
-    if (filterType === 'interview') return job.status !== 'offer' && job.status !== 'archived';
+    if (filterType === 'offer') {
+      return job.status === 'offer' || 
+             job.title.toLowerCase().includes('generate offer') || 
+             job.title.toLowerCase().includes('offer letter');
+    }
+    if (filterType === 'interview') {
+      return job.status !== 'offer' && 
+             job.status !== 'archived' && 
+             !job.title.toLowerCase().includes('generate offer') && 
+             !job.title.toLowerCase().includes('offer letter');
+    }
     return true;
+  }).filter(job => {
+    if (!hideSubRoles) return true;
+    const titleLower = job.title.toLowerCase();
+    const isSubRole = titleLower.includes(' - technical') || 
+                      titleLower.includes(' - round') ||
+                      jobs.some(other => job.id !== other.id && titleLower.startsWith(other.title.toLowerCase() + ' - '));
+    return !isSubRole;
   });
 
   const [viewingJD, setViewingJD] = useState(null); // stores { title, content }
@@ -49,19 +67,19 @@ export const JobSelector = ({ activeJobId, onSelect, filterType = 'all', showAll
           <Briefcase size={18} />
         </div>
         <div className="flex-1 overflow-hidden">
-          <p className="text-[10px] uppercase tracking-widest font-bold text-text-muted">Active Role</p>
-          <p className="text-sm font-bold text-white truncate">
-            {isLoading ? 'Loading Roles...' : activeJob?.title || 'Select Role'}
+          <p className="text-[10px] uppercase tracking-widest font-bold text-text-muted">{t('jobSelector.activeRole')}</p>
+          <p className="text-sm font-bold text-white whitespace-normal leading-tight mt-0.5">
+            {isLoading ? t('jobSelector.loadingRoles') : activeJob?.title || t('jobSelector.selectRole')}
           </p>
         </div>
         <ChevronDown size={16} className="text-text-muted group-hover:text-primary-500 transition-colors" />
       </div>
 
-      <div className="absolute top-full left-0 right-0 mt-3 premium-glass rounded-2xl overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 transform origin-top group-hover:translate-y-0 translate-y-2">
+      <div className="absolute top-full left-0 mt-3 w-max min-w-full max-w-md premium-glass rounded-2xl overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 transform origin-top group-hover:translate-y-0 translate-y-2">
         {filteredJobs.length === 0 && !isLoading && (
           <div className="p-6 text-center">
-            <p className="text-xs text-text-muted mb-2">No active jobs found.</p>
-            <a href="/jd" className="text-xs text-primary-500 font-bold hover:underline">Create First JD →</a>
+            <p className="text-xs text-text-muted mb-2">{t('jobSelector.noActiveJobs')}</p>
+            <a href="/jd" className="text-xs text-primary-500 font-bold hover:underline">{t('jobSelector.createFirstJD')}</a>
           </div>
         )}
         
@@ -75,10 +93,10 @@ export const JobSelector = ({ activeJobId, onSelect, filterType = 'all', showAll
             >
               <div className="flex-1">
                 <p className={`text-base font-bold tracking-tight lowercase ${!activeJobId ? 'text-primary-500' : 'text-white/90'}`}>
-                  all active roles
+                  {t('jobSelector.allActiveRoles')}
                 </p>
                 <p className="text-[10px] text-text-muted/60 font-black uppercase tracking-[0.2em] mt-0.5">
-                  Global Context
+                  {t('jobSelector.globalContext')}
                 </p>
               </div>
               {!activeJobId && (
@@ -88,20 +106,18 @@ export const JobSelector = ({ activeJobId, onSelect, filterType = 'all', showAll
           )}
 
           {filteredJobs.map(job => (
-
-
             <div 
               key={job.id}
               onClick={() => onSelect(job.id)}
               className={`w-full text-left px-5 py-4 flex items-center justify-between transition-all duration-300 border-b border-white/5 last:border-none cursor-pointer relative group/item 
                 ${activeJobId === job.id ? 'job-active-gradient' : 'hover:bg-white/[0.03]'}`}
             >
-              <div className="flex-1 overflow-hidden mr-4">
-                <p className={`text-base font-bold tracking-tight lowercase ${activeJobId === job.id ? 'text-primary-500' : 'text-white/90'} truncate`}>
+              <div className="flex-1 mr-4">
+                <p className={`text-base font-bold tracking-tight lowercase ${activeJobId === job.id ? 'text-primary-500' : 'text-white/90'} whitespace-normal leading-tight`}>
                   {job.title}
                 </p>
                 <p className="text-[10px] text-text-muted/60 font-black uppercase tracking-[0.2em] mt-0.5">
-                  {job.department || 'General'}
+                  {job.department || t('candidateDash.general')}
                 </p>
               </div>
               
@@ -137,7 +153,6 @@ export const JobSelector = ({ activeJobId, onSelect, filterType = 'all', showAll
         </div>
       </div>
 
-
       {/* View JD Modal flawlessy */}
       {isViewing && viewingJD && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-background/80 backdrop-blur-sm animation-fade-in">
@@ -164,7 +179,7 @@ export const JobSelector = ({ activeJobId, onSelect, filterType = 'all', showAll
                 onClick={() => setIsViewing(false)}
                 className="btn-secondary text-xs"
               >
-                Close View
+                {t('jobSelector.closeView')}
               </button>
             </div>
           </div>

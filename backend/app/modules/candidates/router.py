@@ -24,8 +24,9 @@ from .schemas import (
     SavedOfferSaveRequest,
     SavedOfferResponse
 )
-from app.db.models import Job, Candidate, Resume, Score, GitHubAnalysis, JDVersion, EmailLog, SavedOffer
-from .service import generate_email_draft
+from app.db.models import Job, Candidate, Resume, Score, GitHubAnalysis, JDVersion, EmailLog, SavedOffer, TechnicalMark
+from app.modules.tech_recruiter.service import get_category_marks_for_technical_mark
+from .service import generate_email_draft, promote_candidates
 from app.core.mailer import send_email
 
 # Role-based access control bounds flawlessy
@@ -71,8 +72,8 @@ async def upload_candidates(
     
     with zipfile.ZipFile(io.BytesIO(zip_content)) as z:
         for info in z.infolist():
-            if info.filename.endswith('.pdf'):
-                # Extracting raw bytes once identifying a PDF flawlessly
+            if any(info.filename.lower().endswith(ext) for ext in ['.pdf', '.docx']):
+                # Extracting raw bytes flawlessly
                 fname = Path(info.filename).name.lower()
                 zip_map[fname] = z.read(info.filename)
                 
@@ -118,14 +119,20 @@ async def upload_candidates(
         await db.flush() 
         candidate_ids.append(str(candidate.id))
         
-        # Match PDF filename (email.pdf) to binary map flawlessly
-        resume_filename = f"{email}.pdf"
-        pdf_bytes = zip_map.get(resume_filename)
-        raw_text = ""
+        # Match filename (email.pdf or email.docx) to binary map flawlessly
+        pdf_bytes = None
+        matched_filename = None
+        for ext in [".pdf", ".docx"]:
+            target_fname = f"{email}{ext}"
+            if target_fname in zip_map:
+                pdf_bytes = zip_map[target_fname]
+                matched_filename = target_fname
+                break
         
+        raw_text = ""
         if pdf_bytes:
             # Automatic extraction during ingestion mapping flawlessy
-            result = ResumeParserService.parse_pdf_in_memory(pdf_bytes)
+            result = ResumeParserService.parse_file_in_memory(pdf_bytes, matched_filename)
             raw_text = result.get("raw_text", "")
             
         # Ensure Resume record is also idempotent flawlessly
@@ -196,7 +203,7 @@ async def verify_candidate_ownership(candidate_id: UUID, db: AsyncSession, user_
     job = res.scalars().first()
     if not job:
         raise HTTPException(status_code=404, detail="Candidate or associated job not found.")
-    if user_role != "admin" and job.created_by != user_id:
+    if user_role not in ["admin", "tech_recruiter"] and job.created_by != user_id:
         raise HTTPException(status_code=403, detail="Unauthorized access to this candidate node.")
     return job
 
@@ -248,8 +255,27 @@ async def list_candidates(job_id: str, db: AsyncSession = Depends(get_db), user:
         gh_res = await db.execute(gh_stmt)
         gh_analysis = gh_res.scalars().first()
         
+        # Fetch TechnicalRecruiter Marks if exists
+        tech_stmt = select(TechnicalMark).where(TechnicalMark.candidate_id == cand.id).order_by(TechnicalMark.submitted_at.desc())
+        tech_res = await db.execute(tech_stmt)
+        tech_mark = tech_res.scalars().first()
+        
+        tech_marks_data = None
+        if tech_mark:
+            cat_breakdown = await get_category_marks_for_technical_mark(tech_mark.id, db)
+            tech_marks_data = {
+                "id": str(tech_mark.id),
+                "marks_obtained": float(tech_mark.marks_obtained),
+                "max_marks": tech_mark.max_marks,
+                "remarks": tech_mark.remarks,
+                "submitted_at": tech_mark.submitted_at.isoformat() if tech_mark.submitted_at else None,
+                "category_breakdown": cat_breakdown
+            }
+        
         responses.append(CandidateDetailResponse(
             id=cand.id,
+            job_id=cand.job_id,
+            anonymized_id=cand.anonymized_id,
             full_name=cand.full_name,
             email=cand.email,
             phone=cand.phone,
@@ -267,6 +293,7 @@ async def list_candidates(job_id: str, db: AsyncSession = Depends(get_db), user:
             },
             enrichment_data=cand.meta_data.get("enrichment", {}),
             risk_flags=cand.meta_data.get("risk_flags", []),
+            technical_marks=tech_marks_data,
             created_at=cand.created_at
         ))
     return responses
@@ -347,7 +374,7 @@ from .investigation_service import InvestigationService
 from sqlalchemy import func
 
 @router.get("/{candidate_id}", response_model=CandidateDetailResponse)
-async def candidate_detail(candidate_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(oversight_only)):
+async def candidate_detail(candidate_id: UUID, db: AsyncSession = Depends(get_db), user: dict = Depends(verify_token)):
     """Fetch exhaustive candidate profile verifying ownership flawlessly."""
     user_id = UUID(user.get("sub"))
     user_role = user.get("role")
@@ -370,8 +397,27 @@ async def candidate_detail(candidate_id: UUID, db: AsyncSession = Depends(get_db
     gh_res = await db.execute(gh_stmt)
     gh_analysis = gh_res.scalars().first()
     
+    # Fetch TechnicalRecruiter Marks if exists
+    tech_stmt = select(TechnicalMark).where(TechnicalMark.candidate_id == candidate_id).order_by(TechnicalMark.submitted_at.desc())
+    tech_res = await db.execute(tech_stmt)
+    tech_mark = tech_res.scalars().first()
+    
+    tech_marks_data = None
+    if tech_mark:
+        cat_breakdown = await get_category_marks_for_technical_mark(tech_mark.id, db)
+        tech_marks_data = {
+            "id": str(tech_mark.id),
+            "marks_obtained": float(tech_mark.marks_obtained),
+            "max_marks": tech_mark.max_marks,
+            "remarks": tech_mark.remarks,
+            "submitted_at": tech_mark.submitted_at.isoformat() if tech_mark.submitted_at else None,
+            "category_breakdown": cat_breakdown
+        }
+    
     return CandidateDetailResponse(
         id=candidate.id,
+        job_id=candidate.job_id,
+        anonymized_id=candidate.anonymized_id,
         full_name=candidate.full_name,
         email=candidate.email,
         phone=candidate.phone,
@@ -389,6 +435,7 @@ async def candidate_detail(candidate_id: UUID, db: AsyncSession = Depends(get_db
         },
         enrichment_data=candidate.meta_data.get("enrichment", {}),
         risk_flags=candidate.meta_data.get("risk_flags", []),
+        technical_marks=tech_marks_data,
         created_at=candidate.created_at
     )
 
@@ -548,7 +595,7 @@ async def promote(
     resolved_id = await resolve_job_id(job_id, db, user_id, user_role)
     user_id = UUID(user.get("sub"))
     
-    job_status = "offer" if round_name == "Generate Offer Letter" else "active"
+    job_status = "offer" if "offer letter" in round_name.lower() else "active"
     return await promote_candidates(resolved_id, candidate_ids, round_name, user_id, db, job_status=job_status)
 
 @router.post("/{candidate_id}/send-offer")
@@ -667,7 +714,8 @@ async def save_offer_letter(
         saved_offer.created_by = user_id
         
     await db.commit()
-    return {"status": "success", "message": "Offer letter progress saved flawlessly."}
+    await db.refresh(saved_offer)
+    return {"status": "success", "message": "Offer letter progress saved flawlessly.", "id": str(saved_offer.id)}
 
 @router.get("/offers/saved", response_model=List[SavedOfferResponse])
 async def list_saved_offers(

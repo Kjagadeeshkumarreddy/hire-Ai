@@ -22,7 +22,7 @@ apiClient.interceptors.response.use(
     
     // Auto-login Refresh loop hook gracefully skipping infinite repeats
     // Do NOT trigger logout logic for the login endpoint itself flawlessly
-    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login')) {
+    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login') && !originalRequest.url?.includes('/auth/refresh')) {
       originalRequest._retry = true;
       
       const refreshToken = Cookies.get('refresh_token');
@@ -34,11 +34,11 @@ apiClient.interceptors.response.use(
              
              const newAccessToken = res.data.access_token;
              Cookies.set('access_token', newAccessToken, { expires: 1 });
-             useAuthStore.getState().token = newAccessToken; // Sync explicit zustand trace
+             useAuthStore.setState({ token: newAccessToken }); // Sync explicit zustand trace
              
              originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
              return apiClient(originalRequest);
-         } catch (refreshErr) {
+         } catch (_refreshErr) {
              useAuthStore.getState().logout();
          }
       } else {

@@ -1,10 +1,57 @@
 import { create } from 'zustand';
 import Cookies from 'js-cookie';
+import axios from 'axios';
 import apiClient from '../api/client';
 
 export const useAuthStore = create((set) => ({
   token: Cookies.get('access_token') || null,
   user: null, // Depending on complexity, user details might also be fetched or cached.
+  isInitializing: true,
+  
+  initializeAuth: async () => {
+    const accessToken = Cookies.get('access_token');
+    const refreshToken = Cookies.get('refresh_token');
+
+    if (accessToken) {
+      set({ token: accessToken });
+      try {
+        const { data } = await apiClient.get('/auth/me');
+        set({ user: data });
+      } catch (_err) {
+        if (refreshToken) {
+          await useAuthStore.getState().refreshAccessToken(refreshToken);
+        } else {
+          Cookies.remove('access_token');
+          Cookies.remove('refresh_token');
+          set({ token: null, user: null });
+        }
+      }
+    } else if (refreshToken) {
+      await useAuthStore.getState().refreshAccessToken(refreshToken);
+    } else {
+      set({ token: null, user: null });
+    }
+    set({ isInitializing: false });
+  },
+
+  refreshAccessToken: async (refreshToken) => {
+    try {
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+      const { data } = await axios.post(`${baseURL}/auth/refresh`, {
+        refresh_token: refreshToken
+      });
+      const newAccessToken = data.access_token;
+      Cookies.set('access_token', newAccessToken, { expires: 1, secure: false });
+      set({ token: newAccessToken });
+      
+      const userRes = await apiClient.get('/auth/me');
+      set({ user: userRes.data });
+    } catch (_err) {
+      Cookies.remove('access_token');
+      Cookies.remove('refresh_token');
+      set({ token: null, user: null });
+    }
+  },
   
   // Registration hook dynamically injecting payloads to Postgres
   registerUser: async (payload) => {
@@ -16,7 +63,7 @@ export const useAuthStore = create((set) => ({
     try {
       const { data } = await apiClient.get('/auth/me');
       set({ user: data });
-    } catch (err) {
+    } catch (_err) {
       // If token is invalid or expired, clear state to force login
       Cookies.remove('access_token');
       Cookies.remove('refresh_token');

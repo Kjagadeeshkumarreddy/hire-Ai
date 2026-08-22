@@ -5,7 +5,7 @@ from datetime import datetime
 
 class CandidateSummary(BaseModel):
     id: UUID
-    anonymized_id: str
+    anonymized_id: Optional[str] = None
     scores: Dict[str, Any]
     skills: List[str]
     experience_years: Optional[float]
@@ -16,6 +16,8 @@ class CandidateSummary(BaseModel):
 
 class CandidateDetailResponse(BaseModel):
     id: UUID
+    job_id: UUID
+    anonymized_id: Optional[str] = None
     full_name: str
     email: str
     phone: Optional[str] = None
@@ -30,6 +32,7 @@ class CandidateDetailResponse(BaseModel):
     github_data: Optional[Dict[str, Any]] = None
     enrichment_data: Optional[Dict[str, Any]] = None
     risk_flags: List[str] = []
+    technical_marks: Optional[Dict[str, Any]] = None
     
     created_at: datetime
     

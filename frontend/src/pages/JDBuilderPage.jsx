@@ -1,11 +1,13 @@
+import { useTranslation } from 'react-i18next';
 import React, { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { JDForm } from '../components/jd/JDForm';
 import ReactMarkdown from 'react-markdown';
 import { Copy, Check, Sparkles, MessageSquare, Loader2, Upload } from 'lucide-react';
 import { useJDMutations } from '../hooks/useJD';
 
 const JDBuilderPage = () => {
+  const { t } = useTranslation();
   const [jdData, setJdData] = useState(null);
   const [feedback, setFeedback] = useState('');
   const [copied, setCopied] = useState(false);
@@ -34,7 +36,7 @@ const JDBuilderPage = () => {
   return (
     <div className="h-full flex flex-col animation-fade-in">
       <div className="mb-6 flex-shrink-0">
-        <h1 className="text-4xl font-bold text-white mb-2">Job Description Builder</h1>
+        <h1 className="text-4xl font-bold text-white mb-2">{t('jdBuilder.title')}</h1>
         <p className="text-text-muted text-lg">Use the Groq-powered AI pipeline to structure performant, bias-free descriptions.</p>
       </div>
 
@@ -44,7 +46,7 @@ const JDBuilderPage = () => {
           <div className="flex flex-col min-h-0">
             <h2 className="text-xl font-bold text-white mb-4 flex-shrink-0 flex items-center gap-2">
               <span className="w-8 h-8 rounded-lg bg-primary-500/10 text-primary-500 flex items-center justify-center text-sm">01</span>
-              Pipeline Parameters
+              {t('jdBuilder.pipelineParameters')}
             </h2>
             <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
               <JDForm onGenerated={setJdData} />
@@ -56,14 +58,14 @@ const JDBuilderPage = () => {
             <div className="flex flex-col min-h-0 animation-slide-up">
               <h2 className="text-xl font-bold text-white mb-4 flex-shrink-0 flex items-center gap-2">
                 <span className="w-8 h-8 rounded-lg bg-primary-500/10 text-primary-500 flex items-center justify-center text-sm">03</span>
-                Refinement Feedback
+                {t('jdBuilder.refinementFeedback')}
               </h2>
               <div className="glass-panel p-6 space-y-4">
                 <div className="relative">
                   <textarea 
                     value={feedback}
                     onChange={(e) => setFeedback(e.target.value)}
-                    placeholder="e.g. 'Add more focus on system design' or 'Mention our remote culture'..."
+                    placeholder={t('jdBuilder.refinePlaceholder')}
                     rows={4}
                     className="w-full bg-background border border-border rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary-500 text-sm placeholder:text-text-muted/50 transition-all"
                   />
@@ -79,7 +81,7 @@ const JDBuilderPage = () => {
                   {improveJD.isPending ? (
                     <Loader2 className="animate-spin" size={18} />
                   ) : (
-                    <><Sparkles size={18} /> Refine with AI</>
+                    <><Sparkles size={18} /> {t('jdBuilder.refineWithAI')}</>
                   )}
                 </button>
                 {jdData.version > 1 && (
@@ -96,7 +98,7 @@ const JDBuilderPage = () => {
         <div className="flex flex-col h-full min-h-0">
           <h2 className="text-xl font-bold text-white mb-4 flex-shrink-0 flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-primary-500/10 text-primary-500 flex items-center justify-center text-sm">02</span>
-            Live Preview
+            {t('jdBuilder.livePreview')}
           </h2>
           
           <div className="relative flex-1 glass-panel border-dashed overflow-hidden flex flex-col min-h-0">
@@ -105,7 +107,7 @@ const JDBuilderPage = () => {
                 onClick={handleCopy}
                 className="absolute top-4 right-8 z-10 p-2 bg-background/80 hover:bg-background border border-border rounded-lg text-text-muted hover:text-primary-500 transition-all flex items-center gap-2 text-xs shadow-lg backdrop-blur"
               >
-                {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy to Clipboard</>}
+                {copied ? <><Check size={14} /> {t('jdBuilder.copied')}</> : <><Copy size={14} /> {t('jdBuilder.copyToClipboard')}</>}
               </button>
             )}
 
@@ -123,10 +125,10 @@ const JDBuilderPage = () => {
                     >
                       <div className="w-full h-px bg-gradient-to-r from-transparent via-primary-500/20 to-transparent mb-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                       <div className="bg-primary-500 hover:bg-primary-600 text-background font-bold px-8 py-4 rounded-xl shadow-[0_0_20px_rgba(20,184,166,0.3)] hover:shadow-[0_0_30px_rgba(20,184,166,0.5)] transition-all flex items-center gap-3 group-hover:scale-105">
-                        Finalize & Upload Candidates
+                        {t('jdBuilder.finalizeAndUpload')}
                         <Upload size={20} />
                       </div>
-                      <span className="text-[10px] text-text-muted uppercase tracking-[0.2em] font-medium">Proceed to Agentic Ingestion</span>
+                      <span className="text-[10px] text-text-muted uppercase tracking-[0.2em] font-medium">{t('jdBuilder.proceedToIngestion')}</span>
                     </button>
                   </div>
                 </div>
@@ -136,7 +138,7 @@ const JDBuilderPage = () => {
                     <Copy className="text-white/10" size={32} />
                   </div>
                   <span className="text-text-muted tracking-wide text-sm max-w-[200px]">
-                    Configure parameters and click 'Generate' to see the JD content here.
+                    {t('jdBuilder.configureParameters')}
                   </span>
                 </div>
               )}

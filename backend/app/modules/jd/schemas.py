@@ -9,6 +9,7 @@ class JDGenerateRequest(BaseModel):
     key_requirements: List[str] = Field(default_factory=list)
     seniority_level: str
     tone: str = "professional"
+    template_text: Optional[str] = None
 
 class JDImproveRequest(BaseModel):
     feedback: str
@@ -62,4 +63,9 @@ class ActivityItem(BaseModel):
 
 class DashboardActivityResponse(BaseModel):
     activities: List[ActivityItem]
+
+class OfferTemplateSaveRequest(BaseModel):
+    html: str
+    subject: Optional[str] = None
+
 

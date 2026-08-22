@@ -9,9 +9,19 @@ from app.middleware.auth import verify_token, RoleChecker
 
 from app.db.session import get_db
 from app.db.models import User
+from app.modules.auth.service import send_otp_email, verify_otp
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 hr_only = RoleChecker(["hr"])
+
+class RequestOTP(BaseModel):
+    email: EmailStr
+
+class ForgotPassword(BaseModel):
+    email: EmailStr
+    role: str
+    otp: str
+    new_password: str
 
 class UserRegister(BaseModel):
     email: EmailStr
@@ -19,12 +29,60 @@ class UserRegister(BaseModel):
     full_name: str
     role: Optional[str] = "admin"
     passkey: Optional[str] = None
+    otp: str
 
 from app.config import settings
 
+@router.post("/otp/send", status_code=status.HTTP_200_OK)
+async def request_otp(payload: RequestOTP, db: AsyncSession = Depends(get_db)):
+    """Request a 6-digit OTP for email verification flawlessly."""
+    # Check if user already exists with this email (optional, maybe we want to allow re-sending OTP)
+    # For now, just send it.
+    success = await send_otp_email(payload.email)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to send OTP email. Please try again.")
+    return {"message": "Verification code dispatched successfully."}
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+async def forgot_password(payload: ForgotPassword, db: AsyncSession = Depends(get_db)):
+    """Verify OTP and reset user password."""
+    # 1. Verify OTP
+    is_valid = await verify_otp(payload.email, payload.otp)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code."
+        )
+
+    # 2. Find user by email and role
+    stmt = select(User).where(User.email == payload.email, User.role == payload.role)
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account found with this email and role."
+        )
+
+    # 3. Hash new password and update
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(payload.new_password.encode('utf-8'), salt).decode('utf-8')
+    user.hashed_password = hashed_password
+    await db.commit()
+
+    return {"message": "Password has been reset successfully. You can now log in with your new password."}
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register_user(payload: UserRegister, db: AsyncSession = Depends(get_db)):
-    # 1. Admin Passkey Validation flawlessy
+    # 1. OTP Verification flawlessly
+    is_valid = await verify_otp(payload.email, payload.otp)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Invalid or expired verification code."
+        )
+
+    # 2. Admin Passkey Validation flawlessy
     if payload.role == "admin":
         if not payload.passkey or payload.passkey.strip() != settings.admin_passkey:
             raise HTTPException(
@@ -59,7 +117,7 @@ async def register_user(payload: UserRegister, db: AsyncSession = Depends(get_db
     return {"message": "Administrative architecture effectively registered.", "user_id": new_user.id}
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str  # For tech_recruiter role, this is the login_id (e.g. TR-XXXXXX)
     password: str
     role: str
 
@@ -80,9 +138,28 @@ from app.core.security import create_access_token, create_refresh_token, decode_
 
 @router.post("/login", status_code=status.HTTP_200_OK)
 async def login_user(payload: UserLogin, db: AsyncSession = Depends(get_db)):
-    stmt = select(User).where(User.email == payload.email, User.role == payload.role)
-    result = await db.execute(stmt)
-    user = result.scalars().first()
+    user = None
+
+    if payload.role == "tech_recruiter":
+        # Tech recruiter logs in with login_id (passed as email field)
+        from app.db.models import TechRecruiterCredential
+        cred_stmt = select(TechRecruiterCredential).where(
+            TechRecruiterCredential.login_id == payload.email.strip().upper(),
+            TechRecruiterCredential.is_active == True
+        )
+        cred_result = await db.execute(cred_stmt)
+        credential = cred_result.scalars().first()
+        if credential:
+            stmt = select(User).where(
+                User.id == credential.recruiter_user_id,
+                User.role == "tech_recruiter"
+            )
+            result = await db.execute(stmt)
+            user = result.scalars().first()
+    else:
+        stmt = select(User).where(User.email == payload.email, User.role == payload.role)
+        result = await db.execute(stmt)
+        user = result.scalars().first()
     
     if not user or not bcrypt.checkpw(payload.password.encode('utf-8'), user.hashed_password.encode('utf-8')):
         raise HTTPException(status_code=401, detail="Invalid credential parameters for this role.")

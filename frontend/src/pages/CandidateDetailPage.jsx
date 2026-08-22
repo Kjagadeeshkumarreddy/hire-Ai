@@ -1,20 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useCandidateMutations } from '../hooks/useCandidates';
-import { ArrowLeft, ExternalLink, ShieldAlert, Zap, Loader2, Star, GitBranch, Globe, UserCheck, UserX, Terminal, X, ChevronUp, ChevronDown } from 'lucide-react';
+import { 
+  ArrowLeft, ExternalLink, ShieldAlert, Zap, Loader2, Star, 
+  GitBranch, Globe, UserCheck, UserX, Terminal, X, ChevronUp, ChevronDown,
+  Sparkles, Layers, ShieldCheck, Info, BrainCircuit
+} from 'lucide-react';
 import { candidateApi } from '../api/candidates';
 import { useAuthStore } from '../stores/authStore';
+import ReactMarkdown from 'react-markdown';
 
 const CandidateDetailPage = () => {
   const { id } = useParams();
+  const location = useLocation();
   const [candidate, setCandidate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [investigating, setInvestigating] = useState(false);
   const [thoughts, setThoughts] = useState([]);
   const [showConsole, setShowConsole] = useState(false);
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('summary');
   const { toggleShortlist } = useCandidateMutations();
 
-  const fetchCandidate = async () => {
+  const fetchCandidate = useCallback(async () => {
+    setLoading(true);
     try {
       const data = await candidateApi.getDetail(id);
       setCandidate(data);
@@ -23,11 +32,11 @@ const CandidateDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
     fetchCandidate();
-  }, [id]);
+  }, [fetchCandidate]);
 
   const handleInvestigate = async () => {
     console.log("⚡ [DEBUG] AI Investigation initiated (Buffered Reader Mode) for ID:", id);
@@ -86,7 +95,7 @@ const CandidateDetailPage = () => {
                  setInvestigating(false);
               }, 2000);
             }
-          } catch (e) {
+          } catch (_e) {
             console.warn("⚠️ [STREAM] Fragmented or invalid JSON caught:", trimmed);
           }
         }
@@ -124,8 +133,8 @@ const CandidateDetailPage = () => {
   return (
     <div className="max-w-6xl mx-auto animation-fade-in pb-20 relative">
       <div className="flex items-center justify-between mb-8">
-        <Link to="/candidates" className="flex items-center gap-2 text-text-muted hover:text-white transition-colors">
-          <ArrowLeft size={16} /> Dashboard
+        <Link to={location.state?.from === '/shortlisted' ? '/shortlisted' : '/candidates'} className="flex items-center gap-2 text-text-muted hover:text-white transition-colors">
+          <ArrowLeft size={16} /> {location.state?.from === '/shortlisted' ? 'Back to Shortlisted' : 'Dashboard'}
         </Link>
         <div className="flex items-center gap-4">
           <button 
@@ -189,12 +198,34 @@ const CandidateDetailPage = () => {
 
           {/* AI Enlightenment Summary */}
           <div className="glass-panel p-8 relative">
-            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-               Investigation Summary
-            </h2>
-            <p className="text-text-muted leading-relaxed whitespace-pre-wrap text-lg">
-              {candidate.enrichment_data?.summary || 'No AI summary generated yet. Execute an investigation to analyze this profile flawlessly.'}
-            </p>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                 Investigation Summary
+              </h2>
+              {candidate.scores && (candidate.scores.persona_evals || candidate.scores.evaluations) && (
+                <button
+                  onClick={() => setIsSummaryModalOpen(true)}
+                  className="px-4 py-2 bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 font-bold border border-primary-500/30 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-primary-500/5"
+                >
+                  <Sparkles size={14} />
+                  View Detailed Summary
+                </button>
+              )}
+            </div>
+            <div className="text-text-muted leading-relaxed text-lg">
+              {candidate.enrichment_data?.summary ? (
+                <ReactMarkdown
+                  components={{
+                    strong: ({node: _node, ...props}) => <strong style={{ fontWeight: 700, color: '#fff' }} {...props} />,
+                    p: ({node: _node, ...props}) => <p style={{ marginBottom: '12px', lineHeight: '1.7' }} {...props} />
+                  }}
+                >
+                  {candidate.enrichment_data.summary}
+                </ReactMarkdown>
+              ) : (
+                <p>No AI summary generated yet. Execute an investigation to analyze this profile flawlessly.</p>
+              )}
+            </div>
             
             {candidate.enrichment_data?.gap_analysis?.length > 0 && (
               <div className="mt-8 pt-8 border-t border-border/50">
@@ -364,7 +395,7 @@ const CandidateDetailPage = () => {
               </div>
               
               <div className="h-[300px] overflow-y-auto p-8 font-mono text-[11px] leading-relaxed custom-scrollbar bg-black/40">
-                 {thoughts.map((thought, i) => (
+                 {thoughts.map((thought) => (
                     <div key={thought.id} className="mb-3 animation-fade-in flex gap-4">
                        <span className="text-primary-500/40 shrink-0">[{thought.timestamp}]</span>
                        <span className={thought.node ? 'text-primary-400 font-bold' : 'text-text-muted whitespace-pre-wrap'}>
@@ -382,10 +413,165 @@ const CandidateDetailPage = () => {
                     </div>
                  )}
                  <div ref={(el) => el?.scrollIntoView({ behavior: 'smooth' })} />
-              </div>
-           </div>
-        </div>
+               </div>
+            </div>
+         </div>
       </div>
+      {/* Detailed Summary Modal / Full Screen Overlay */}
+      {isSummaryModalOpen && candidate && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-8 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-5xl max-h-[90vh] bg-surface border border-border rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-300">
+            
+            {/* Modal Header */}
+            <div className="p-6 border-b border-border bg-surface-dark flex items-center justify-between">
+               <div className="flex items-center gap-4">
+                  <div className="bg-primary-500/20 p-2 rounded-xl">
+                     <BrainCircuit className="text-primary-500" size={24} />
+                  </div>
+                  <div>
+                     <h2 className="text-xl font-bold text-white tracking-tight">AI Evaluation Dossier</h2>
+                     <p className="text-xs text-text-muted font-mono uppercase tracking-[0.2em]">{candidate.full_name} - Detailed Report</p>
+                  </div>
+               </div>
+               <button 
+                 onClick={() => setIsSummaryModalOpen(false)} 
+                 className="p-2 hover:bg-white/5 rounded-full transition-colors text-text-muted hover:text-white"
+                 title="Close evaluation report"
+               >
+                  <X size={20} />
+               </button>
+            </div>
+
+            {/* Modal Content Scroll Area */}
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  
+                  {/* Left Column: Match Score & Gaps */}
+                  <div className="space-y-6">
+                     <div className="text-center p-8 bg-surface-dark rounded-3xl border border-border">
+                        <div className="relative inline-block mb-4">
+                           <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 128 128" style={{ overflow: 'visible' }}>
+                             <circle cx="64" cy="64" r="50" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-border" />
+                             <circle cx="64" cy="64" r="50" stroke="currentColor" strokeWidth="8" fill="transparent" 
+                               strokeDasharray={314.16}
+                               strokeDashoffset={314.16 - (314.16 * (candidate.scores?.total_score || candidate.metadata?.total_score || 0)) / 100}
+                               className="text-primary-500" 
+                             />
+                           </svg>
+                           <div className="absolute inset-0 flex flex-col items-center justify-center">
+                             <span className="text-3xl font-black text-white">{candidate.scores?.total_score || candidate.metadata?.total_score || 0}%</span>
+                             <span className="text-[10px] font-bold text-text-muted uppercase tracking-tighter">Match</span>
+                           </div>
+                        </div>
+                        <h3 className="text-white font-bold mb-2">Aggregate Score</h3>
+                     </div>
+
+                     <div className="space-y-4">
+                        <h4 className="text-xs font-bold text-text-muted uppercase tracking-wider">Skill Gaps Detected</h4>
+                        <div className="flex flex-wrap gap-2">
+                           {candidate.enrichment_data?.gap_analysis && candidate.enrichment_data.gap_analysis.length > 0 ? (
+                             candidate.enrichment_data.gap_analysis.map((skill, i) => (
+                               <span key={i} className="bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1.5 rounded-lg text-xs font-bold">
+                                 {skill}
+                               </span>
+                             ))
+                           ) : (
+                             <span className="bg-green-500/10 text-green-500 border border-green-500/20 px-3 py-1.5 rounded-lg text-xs font-bold">
+                               No major skill gaps identified!
+                             </span>
+                           )}
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Right Column: Tabbed evaluations */}
+                  <div className="lg:col-span-2 space-y-6">
+                     {/* Tabs Navigation */}
+                     <div className="flex p-1 bg-surface-dark rounded-2xl border border-border">
+                       {[
+                         { id: 'summary', icon: Sparkles, label: 'Summary' },
+                         { id: 'architect', icon: Layers, label: 'Architectural Audit' },
+                         { id: 'culture', icon: ShieldCheck, label: 'Culture & Fit' },
+                         { id: 'risk', icon: Info, label: 'Risk Analysis' }
+                       ].map((tab) => (
+                         <button
+                           key={tab.id}
+                           type="button"
+                           onClick={() => setActiveTab(tab.id)}
+                           className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all border ${activeTab === tab.id ? 'bg-surface border-border text-white shadow-lg' : 'bg-transparent border-transparent text-text-muted hover:text-text-main hover:bg-white/5'}`}
+                         >
+                           <tab.icon size={16} className={activeTab === tab.id ? (tab.id === 'architect' ? 'text-blue-400' : tab.id === 'culture' ? 'text-indigo-400' : tab.id === 'risk' ? 'text-red-400' : 'text-primary-400') : ''} />
+                           {tab.label}
+                         </button>
+                       ))}
+                     </div>
+
+                     {/* Tab Contents */}
+                     <div className="bg-surface-dark border border-border rounded-3xl p-8 min-h-[300px] text-sm text-text-muted leading-7">
+                       {activeTab === 'summary' && candidate.enrichment_data?.summary && (
+                         <div className="space-y-4 animate-in fade-in duration-200">
+                           <h4 className="text-xl font-bold text-white tracking-tight mb-2">Investigation Summary</h4>
+                           <ReactMarkdown
+                             components={{
+                               strong: ({node: _node, ...props}) => <strong style={{ fontWeight: 700, color: '#fff' }} {...props} />,
+                               p: ({node: _node, ...props}) => <p style={{ marginBottom: '12px', lineHeight: '1.7' }} {...props} />
+                             }}
+                           >
+                             {candidate.enrichment_data.summary}
+                           </ReactMarkdown>
+                         </div>
+                       )}
+
+                       {activeTab === 'architect' && (
+                         <div className="space-y-4 animate-in fade-in duration-200">
+                           <h4 className="text-xl font-bold text-white tracking-tight mb-2">Architectural Audit Outcome</h4>
+                           <ReactMarkdown
+                             components={{
+                               strong: ({node: _node, ...props}) => <strong style={{ fontWeight: 700, color: '#fff' }} {...props} />,
+                               p: ({node: _node, ...props}) => <p style={{ marginBottom: '12px', lineHeight: '1.7' }} {...props} />
+                             }}
+                           >
+                             {(candidate.scores?.persona_evals?.architect || candidate.scores?.evaluations?.architect) || 'No architectural audit evaluation details available.'}
+                           </ReactMarkdown>
+                         </div>
+                       )}
+
+                       {activeTab === 'culture' && (
+                         <div className="space-y-4 animate-in fade-in duration-200">
+                           <h4 className="text-xl font-bold text-white tracking-tight mb-2">Culture & Fit Outcome</h4>
+                           <ReactMarkdown
+                             components={{
+                               strong: ({node: _node, ...props}) => <strong style={{ fontWeight: 700, color: '#fff' }} {...props} />,
+                               p: ({node: _node, ...props}) => <p style={{ marginBottom: '12px', lineHeight: '1.7' }} {...props} />
+                             }}
+                           >
+                             {(candidate.scores?.persona_evals?.culture || candidate.scores?.evaluations?.culture) || 'No culture evaluation details available.'}
+                           </ReactMarkdown>
+                         </div>
+                       )}
+
+                       {activeTab === 'risk' && (
+                         <div className="space-y-4 animate-in fade-in duration-200">
+                           <h4 className="text-xl font-bold text-white tracking-tight mb-2">Risk Analysis Outcome</h4>
+                           <ReactMarkdown
+                             components={{
+                               strong: ({node: _node, ...props}) => <strong style={{ fontWeight: 700, color: '#fff' }} {...props} />,
+                               p: ({node: _node, ...props}) => <p style={{ marginBottom: '12px', lineHeight: '1.7' }} {...props} />
+                             }}
+                           >
+                             {(candidate.scores?.persona_evals?.risk || candidate.scores?.evaluations?.risk) || 'No risk analysis evaluation details available.'}
+                           </ReactMarkdown>
+                         </div>
+                       )}
+                     </div>
+                  </div>
+
+               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -44,3 +44,4 @@ class HiringPipelineState(TypedDict):
     input_key_requirements: Optional[List[str]]
     input_seniority: Optional[str]
     input_tone: Optional[str]
+    input_template_text: Optional[str]

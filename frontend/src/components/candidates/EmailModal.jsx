@@ -1,21 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import React, { useState } from 'react';
 import { X, Send, Loader2, Sparkles, Mail, CheckCircle } from 'lucide-react';
 import { useEmailDraft, useCandidateMutations } from '../../hooks/useCandidates';
 
 const EmailModal = ({ candidateId, candidateName, onClose }) => {
-  const { data: draft, isLoading: isDraftLoading, isError } = useEmailDraft(candidateId);
+  const { t } = useTranslation();
+  const { data: draft, isLoading: isDraftLoading } = useEmailDraft(candidateId);
   const { sendEmail } = useCandidateMutations();
   
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [isSent, setIsSent] = useState(false);
+  const [prevDraft, setPrevDraft] = useState(null);
 
-  useEffect(() => {
-    if (draft) {
-      setSubject(draft.subject);
-      setBody(draft.body);
-    }
-  }, [draft]);
+  if (draft && draft !== prevDraft) {
+    setPrevDraft(draft);
+    setSubject(draft.subject || '');
+    setBody(draft.body || '');
+  }
 
   const handleSend = async () => {
     try {
@@ -39,7 +41,7 @@ const EmailModal = ({ candidateId, candidateName, onClose }) => {
               <Mail size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-black text-white uppercase tracking-tight">Interview Invitation</h2>
+              <h2 className="text-xl font-black text-white uppercase tracking-tight">{t('emailModal.interviewInvitation')}</h2>
               <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">To: {candidateName}</p>
             </div>
           </div>
@@ -54,8 +56,8 @@ const EmailModal = ({ candidateId, candidateName, onClose }) => {
             <div className="py-20 flex flex-col items-center justify-center gap-4">
               <Sparkles size={40} className="text-primary-500 animate-pulse" />
               <div className="text-center">
-                <p className="text-white font-bold mb-1">AI is composing your invitation...</p>
-                <p className="text-xs text-text-muted">Analyzing candidate background & job requirements</p>
+                <p className="text-white font-bold mb-1">{t('emailModal.aiComposing')}</p>
+                <p className="text-xs text-text-muted">{t('emailModal.analyzingCandidate')}</p>
               </div>
             </div>
           ) : isSent ? (
@@ -63,12 +65,12 @@ const EmailModal = ({ candidateId, candidateName, onClose }) => {
               <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center text-green-500 border border-green-500/30">
                 <CheckCircle size={40} />
               </div>
-              <p className="text-xl font-black text-white uppercase">Invitation Sent!</p>
+              <p className="text-xl font-black text-white uppercase">{t('emailModal.invitationSent')}</p>
             </div>
           ) : (
             <div className="space-y-4 animate-in slide-in-from-bottom duration-500">
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-text-muted px-1">Subject Line</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-text-muted px-1">{t('emailModal.subjectLine')}</label>
                 <input 
                   type="text" 
                   value={subject}
@@ -78,7 +80,7 @@ const EmailModal = ({ candidateId, candidateName, onClose }) => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-text-muted px-1">Email Body (HTML Supported)</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-text-muted px-1">{t('emailModal.emailBodyHtml')}</label>
                 <textarea 
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
@@ -89,7 +91,7 @@ const EmailModal = ({ candidateId, candidateName, onClose }) => {
               <div className="p-4 rounded-xl bg-primary-500/5 border border-primary-500/10 flex items-start gap-3">
                 <Sparkles size={16} className="text-primary-500 mt-0.5" />
                 <p className="text-[10px] text-text-muted leading-relaxed">
-                  <span className="text-primary-500 font-bold">Pro-tip:</span> The AI has personalized this based on their profile. Review the placeholders like <code className="text-primary-400 font-black">[Link]</code> before sending.
+                  <span className="text-primary-500 font-bold">{t('emailModal.proTip')}</span>{t('emailModal.proTipText')}<code className="text-primary-400 font-black">[Link]</code>{t('emailModal.proTipEnd')}
                 </p>
               </div>
             </div>
@@ -103,7 +105,7 @@ const EmailModal = ({ candidateId, candidateName, onClose }) => {
               onClick={onClose}
               className="px-6 py-2.5 rounded-xl border border-white/10 text-text-muted font-bold text-xs uppercase tracking-widest hover:bg-white/5 transition-all"
             >
-              Cancel
+              {t('shortlisted.cancel')}
             </button>
             <button 
               onClick={handleSend}
@@ -111,7 +113,7 @@ const EmailModal = ({ candidateId, candidateName, onClose }) => {
               className="btn-primary flex items-center gap-2 px-8 py-2.5 shadow-[0_0_20px_rgba(var(--primary-rgb),0.2)]"
             >
               {sendEmail.isPending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-              {sendEmail.isPending ? "Delivering..." : "Deploy Invitation"}
+              {sendEmail.isPending ? t('emailModal.delivering') : t('emailModal.deployInvitation')}
             </button>
           </div>
         )}

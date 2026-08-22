@@ -19,10 +19,10 @@ class JDService:
             requirements=", ".join(reqs)
         )
         
-        logger.info("jd.generate", title=title, model="llama-3.3-70b-versatile")
+        logger.info("jd.generate", title=title, model="openai/gpt-oss-120b")
         response = await client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             temperature=0.7,
             max_tokens=2048,
             response_format={"type": "json_object"}

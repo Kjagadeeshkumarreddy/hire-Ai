@@ -11,7 +11,7 @@ logger = structlog.get_logger()
 # Initialize LLM Client with a high-capacity versatile model mapped flawlessly
 llm = ChatGroq(
     api_key=settings.groq_api_key, # Using stripped property flawlessly
-    model_name="llama-3.3-70b-versatile",
+    model_name="openai/gpt-oss-120b",
     temperature=0.1, 
     max_retries=3 # Automatic backoff for 429 errors flawlessly 
 )
@@ -19,7 +19,7 @@ llm = ChatGroq(
 from app.db.redis import redis_manager
 from app.modules.ai_enrichment.cache import LLMCache
 
-async def cached_llm_invoke(messages: list, model_name: str = "llama-3.3-70b-versatile") -> str:
+async def cached_llm_invoke(messages: list, model_name: str = "openai/gpt-oss-120b") -> str:
     """Helper to invoke LLM with Redis caching enabled flawlessly."""
     # Convert messages to a stable string for key generation flawlessly
     prompt_str = "\n".join([f"{m.type}:{m.content}" for m in messages])
@@ -152,11 +152,13 @@ async def jd_generator_node(state: HiringPipelineState) -> dict:
     and engaging Job Description based on the provided parameters. 
     The tone should be {state.get('input_tone', 'professional')}.
     
-    CRITICAL INSTRUCTION: If refining an existing JD, focus HEAVILY on the specific feedback 
-    provided while maintaining the document's overall flow. Do not discard sections that 
-    the user didn't mention unless it improves the clarity.
+    CRITICAL INSTRUCTION: If an 'input_template_text' is provided, use it as the structural and stylistic blueprint. 
+    Preserve the exact section order, heading format, and bullet style of the template while generating new content for the specified role.
+    Adapt the tone and vocabulary to the new role without copying verbatim sentences.
     """
     
+    requirements_str = ', '.join(state.get('input_key_requirements', [])) if state.get('input_key_requirements') else 'Standard role requirements'
+
     if state.get("jd_feedback") and state.get("jd_content"):
         user_prompt = f"""
         Refine the following Job Description based on this user feedback.
@@ -168,11 +170,28 @@ async def jd_generator_node(state: HiringPipelineState) -> dict:
         
         Return the full updated JD. Maintain professional markdown formatting.
         """
+    elif state.get("input_template_text"):
+        user_prompt = f"""
+        You are given an existing JD template below. Your task is to generate a NEW Job Description
+        for the role of "{state.get('input_job_title')}" in the "{state.get('input_department')}" department,
+        using this template as your structural and stylistic blueprint.
+
+        TEMPLATE:
+        {state.get('input_template_text')}
+
+        INSTRUCTIONS:
+        1. Preserve the exact section order, heading format, and bullet style of the template.
+        2. Replace all role-specific content with new, original content for the target role.
+        3. Seniority Level: {state.get('input_seniority', 'Not Specified')}
+        4. Key Requirements/Context: {requirements_str}
+        5. Do NOT copy verbatim sentences — adapt the tone and vocabulary to the new role.
+        6. Output in clean Markdown format.
+        """
     else:
         user_prompt = f"""
         Generate a comprehensive Job Description for a {state.get('input_job_title')} in the {state.get('input_department')} department.
         Seniority Level: {state.get('input_seniority', 'Not Specified')}
-        Key Requirements/Context: {', '.join(state.get('input_key_requirements', [])) if state.get('input_key_requirements') else 'Standard role requirements'}
+        Key Requirements/Context: {requirements_str}
         
         Format the output clearly with:
         1. Role Summary

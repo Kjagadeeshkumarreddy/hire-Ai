@@ -15,7 +15,7 @@ const ActivityIcon = ({ action }) => {
 };
 
 
-const StatCard = ({ title, value, icon: Icon, colorClass, isLoading }) => (
+const StatCard = ({ title, value, icon: IconComponent, colorClass, isLoading }) => (
   <div className="glass-panel p-6 hover:-translate-y-1 transition-all duration-300 group hover:border-primary-500/30">
     <div className="flex items-start justify-between">
       <div>
@@ -27,7 +27,7 @@ const StatCard = ({ title, value, icon: Icon, colorClass, isLoading }) => (
         )}
       </div>
       <div className={`p-4 rounded-2xl ${colorClass} group-hover:scale-110 transition-transform`}>
-        <Icon size={24} className="text-white" />
+        <IconComponent size={24} className="text-white" />
       </div>
     </div>
   </div>

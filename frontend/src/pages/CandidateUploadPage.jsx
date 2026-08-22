@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { UploadZone } from '../components/candidates/UploadZone';
@@ -5,6 +6,7 @@ import { usePipelineStore } from '../stores/pipelineStore';
 import { JobSelector } from '../components/common/JobSelector';
 
 const CandidateUploadPage = () => {
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const jobIdFromUrl = searchParams.get('jobId');
   const [selectedJobId, setSelectedJobId] = React.useState(jobIdFromUrl || localStorage.getItem('activeJobId') || '');
@@ -20,11 +22,11 @@ const CandidateUploadPage = () => {
     <div className="max-w-5xl mx-auto animation-fade-in">
       <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">LangGraph Candidate Sync</h1>
-          <p className="text-text-muted">Initialize the internal agent paths spanning LLMs, standard parsers, and explicit pipeline orchestrations natively.</p>
+          <h1 className="text-3xl font-bold text-white mb-2">{t('upload.langGraphSync')}</h1>
+          <p className="text-text-muted">{t('upload.uploadDescription')}</p>
         </div>
         <div className="shrink-0">
-          <p className="text-[10px] uppercase tracking-widest font-black text-primary-500 mb-2">Target JD Context</p>
+          <p className="text-[10px] uppercase tracking-widest font-black text-primary-500 mb-2">{t('upload.targetJDContext')}</p>
           <JobSelector activeJobId={selectedJobId} onSelect={handleJobSelect} filterType="interview" />
         </div>
       </div>
@@ -34,7 +36,7 @@ const CandidateUploadPage = () => {
         
         {progress.status === 'running' && (
           <div className="glass-panel p-6 border-l-4 border-primary-500">
-            <h2 className="text-lg font-bold text-white mb-2">Live Progress Streaming</h2>
+            <h2 className="text-lg font-bold text-white mb-2">{t('upload.liveProgressStreaming')}</h2>
             <div className="flex items-center justify-between text-sm text-text-muted mb-4">
               <span>Step: <span className="text-white capitalize">{progress.current_step.replace('_', ' ')}</span></span>
               <span>{progress.processed} / {progress.total} Parsed</span>

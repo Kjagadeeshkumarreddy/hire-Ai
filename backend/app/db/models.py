@@ -21,6 +21,9 @@ class User(Base):
     smtp_port = Column(Integer, server_default='587')
     smtp_user = Column(String(255), nullable=True)
     smtp_password = Column(String(255), nullable=True)
+    # OAuth tokens for meeting platform integrations
+    google_oauth_token = Column(JSONB, nullable=True)  # {access_token, refresh_token, expiry, calendar_id}
+    teams_oauth_token = Column(JSONB, nullable=True)   # {access_token, refresh_token, expiry}
     is_active = Column(Boolean, server_default='true')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -243,8 +246,13 @@ class SavedOffer(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     subject = Column(String(500))
     content = Column(Text, nullable=False)
+    signature_status = Column(String(20), server_default='unsigned')  # unsigned, pending, signed
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    candidate = relationship("Candidate")
+    job = relationship("Job")
 
 class StudentAssessment(Base):
     __tablename__ = "student_assessments"
@@ -268,3 +276,218 @@ class StudentAssessment(Base):
     __table_args__ = (
         Index('idx_assessment_user_id', 'user_id'),
     )
+
+
+class OfferSignature(Base):
+    __tablename__ = "offer_signatures"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    saved_offer_id = Column(UUID(as_uuid=True), ForeignKey("saved_offer_letters.id", ondelete="CASCADE"), nullable=False)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
+
+    # Signing token (unique link for candidate — no login required)
+    signing_token = Column(String(64), unique=True, nullable=False)
+    token_expires_at = Column(DateTime(timezone=True), nullable=False)
+    expires_in_days = Column(Integer, nullable=False, server_default='7')
+
+    # Signature data
+    signature_image = Column(Text)         # Base64 PNG of drawn signature
+    signature_type = Column(String(20))    # "drawn" or "typed"
+    typed_name = Column(String(255))       # If typed signature
+
+    # Legal metadata captured at signing time (Candidate)
+    signer_ip = Column(String(45))         # IPv4/IPv6
+    signer_user_agent = Column(String(500))
+    consent_text = Column(Text)            # Exact legal text they agreed to
+    signed_at = Column(DateTime(timezone=True))
+
+    # HR Signature data (Counter-sign)
+    hr_signature_image = Column(Text)
+    hr_signature_type = Column(String(20))
+    hr_typed_name = Column(String(255))
+    hr_signed_at = Column(DateTime(timezone=True))
+    hr_signer_ip = Column(String(45))
+    hr_signer_user_agent = Column(String(500))
+
+    # Status tracking
+    status = Column(String(30), server_default='pending')  # pending, candidate_signed, signed, expired, revoked
+    signed_pdf_data = Column(Text)         # Base64 of the final signed PDF
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    saved_offer = relationship("SavedOffer")
+    candidate = relationship("Candidate")
+    job = relationship("Job")
+
+    __table_args__ = (
+        Index('idx_esign_token', 'signing_token'),
+        Index('idx_esign_offer', 'saved_offer_id'),
+        Index('idx_esign_candidate', 'candidate_id'),
+    )
+
+class ResumeStyleTemplate(Base):
+    __tablename__ = "resume_style_templates"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    name = Column(String(255))
+    raw_text = Column(Text)
+    style_dna = Column(JSONB) # { verb_tense, metric_density, technical_depth, etc. }
+    section_map = Column(JSONB) # { detected sections }
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class StyleTransferJob(Base):
+    __tablename__ = "style_transfer_jobs"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    status = Column(String(30), server_default='pending') # pending, processing, completed, failed
+    progress = Column(JSONB, server_default='{}') # { current_step, total_sections, completed_sections }
+    candidate_data = Column(JSONB)
+    style_config = Column(JSONB)
+    output_markdown = Column(Text)
+    output_pdf_url = Column(String(512))
+    error_message = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class TechRecruiterCredential(Base):
+    __tablename__ = "tech_recruiter_credentials"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recruiter_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
+    login_id = Column(String(20), unique=True, nullable=False)
+    max_marks = Column(Integer, nullable=False, server_default='100')
+    is_active = Column(Boolean, server_default='true')
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    recruiter_user = relationship("User", foreign_keys=[recruiter_user_id])
+    job = relationship("Job")
+
+    __table_args__ = (
+        Index('idx_techcred_login_id', 'login_id'),
+        Index('idx_techcred_job_id', 'job_id'),
+        Index('idx_techcred_created_by', 'created_by'),
+    )
+
+class TechnicalMark(Base):
+    __tablename__ = "technical_marks"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    credential_id = Column(UUID(as_uuid=True), ForeignKey("tech_recruiter_credentials.id"), nullable=True)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
+    marks_obtained = Column(Numeric(5, 2), nullable=False)
+    max_marks = Column(Integer, nullable=False)
+    remarks = Column(Text)
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now())
+    submitted_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    submitted_by_role = Column(String(20), nullable=True)  # 'tech_recruiter', 'hr', 'admin'
+    edited_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    credential = relationship("TechRecruiterCredential")
+    candidate = relationship("Candidate")
+    job = relationship("Job")
+    submitted_by_user = relationship("User", foreign_keys=[submitted_by_user_id])
+
+    __table_args__ = (
+        UniqueConstraint('credential_id', 'candidate_id', name='uq_techmark_cred_cand'),
+        Index('idx_techmark_candidate', 'candidate_id'),
+        Index('idx_techmark_job', 'job_id'),
+    )
+
+class AssessmentCategory(Base):
+    """HR-defined evaluation categories for a specific job (e.g. Data Structures, System Design)."""
+    __tablename__ = "assessment_categories"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(100), nullable=False)
+    max_marks = Column(Integer, nullable=False)
+    display_order = Column(Integer, nullable=False, server_default='0')
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    job = relationship("Job")
+
+    __table_args__ = (
+        Index('idx_assessment_cat_job', 'job_id'),
+    )
+
+class CategoryMark(Base):
+    """Per-category marks submitted by a tech recruiter for a candidate."""
+    __tablename__ = "category_marks"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    technical_mark_id = Column(UUID(as_uuid=True), ForeignKey("technical_marks.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("assessment_categories.id", ondelete="CASCADE"), nullable=False)
+    marks_obtained = Column(Numeric(5, 2), nullable=False)
+
+    # Relationships
+    technical_mark = relationship("TechnicalMark", backref="category_marks")
+    category = relationship("AssessmentCategory")
+
+    __table_args__ = (
+        UniqueConstraint('technical_mark_id', 'category_id', name='uq_catmark_mark_cat'),
+        Index('idx_catmark_techmark', 'technical_mark_id'),
+        Index('idx_catmark_category', 'category_id'),
+    )
+
+
+class InterviewSchedule(Base):
+    """HR-created scheduling session defining date, time range, breaks, and meeting platform."""
+    __tablename__ = "interview_schedules"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    schedule_date = Column(String(10), nullable=False)  # YYYY-MM-DD
+    start_time = Column(String(5), nullable=False)       # HH:MM
+    end_time = Column(String(5), nullable=False)         # HH:MM
+    meeting_duration_minutes = Column(Integer, nullable=False, server_default='30')
+    breaks = Column(JSONB, server_default='[]')          # [{start_time, end_time, label}]
+    platform = Column(String(20), nullable=False, server_default="'custom'")  # google_meet, teams, custom
+    custom_meeting_link = Column(String(500), nullable=True)
+    status = Column(String(20), server_default='scheduled')  # draft, scheduled, completed
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    job = relationship("Job")
+    creator = relationship("User", foreign_keys=[created_by])
+    slots = relationship("InterviewSlot", back_populates="schedule", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('idx_schedule_job_id', 'job_id'),
+        Index('idx_schedule_created_by', 'created_by'),
+        Index('idx_schedule_date', 'schedule_date'),
+    )
+
+
+class InterviewSlot(Base):
+    """Individual time slot assigned to a candidate within a schedule."""
+    __tablename__ = "interview_slots"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    schedule_id = Column(UUID(as_uuid=True), ForeignKey("interview_schedules.id", ondelete="CASCADE"), nullable=False)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False)
+    slot_start = Column(DateTime(timezone=True), nullable=False)
+    slot_end = Column(DateTime(timezone=True), nullable=False)
+    meeting_link = Column(String(500), nullable=True)
+    meeting_id = Column(String(100), nullable=True)
+    meeting_password = Column(String(100), nullable=True)
+    platform = Column(String(20), server_default="'custom'")
+    email_sent = Column(Boolean, server_default='false')
+    email_sent_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(String(20), server_default='scheduled')  # scheduled, completed, cancelled, no_show
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    schedule = relationship("InterviewSchedule", back_populates="slots")
+    candidate = relationship("Candidate")
+    job = relationship("Job")
+
+    __table_args__ = (
+        UniqueConstraint('schedule_id', 'candidate_id', name='uq_slot_schedule_candidate'),
+        Index('idx_slot_schedule_id', 'schedule_id'),
+        Index('idx_slot_candidate_id', 'candidate_id'),
+        Index('idx_slot_job_id', 'job_id'),
+    )
+

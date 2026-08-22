@@ -22,9 +22,13 @@ async def analyze_self(
     """
     Endpoint for students to trigger a self-assessment.
     """
+    import structlog
+    logger = structlog.get_logger()
+    logger.info("student.analyze.request_received", filename=resume.filename, github=github_username)
+
     # Verify file type
-    if not resume.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF resumes are supported currently.")
+    if not any(resume.filename.lower().endswith(ext) for ext in [".pdf", ".docx", ".doc"]):
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX resumes are supported currently.")
     
     resume_bytes = await resume.read()
     user_id = UUID(user.get("sub"))
@@ -33,6 +37,7 @@ async def analyze_self(
         result = await StudentService.run_self_assessment(
             user_id=user_id,
             resume_bytes=resume_bytes,
+            filename=resume.filename,
             github_username=github_username,
             jd_text=jd_text,
             db=db
@@ -84,3 +89,30 @@ async def delete_assessment(
     if not success:
         raise HTTPException(status_code=404, detail="Assessment not found or unauthorized.")
     return {"status": "success"}
+
+@router.post("/convert-resume")
+async def convert_resume(
+    resume: UploadFile = File(...),
+    template_text: str = Form(...),
+    user: dict = Depends(verify_token)
+):
+    """
+    Endpoint for students to convert their resume using a template flawlessly.
+    """
+    if not any(resume.filename.lower().endswith(ext) for ext in [".pdf", ".docx", ".doc"]):
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX resumes are supported currently.")
+    
+    resume_bytes = await resume.read()
+    
+    try:
+        converted_text = await StudentService.convert_resume(
+            resume_bytes=resume_bytes,
+            filename=resume.filename,
+            template_text=template_text
+        )
+        return {"converted_resume": converted_text}
+    except Exception as e:
+        import structlog
+        logger = structlog.get_logger()
+        logger.error("student.convert_resume.failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")

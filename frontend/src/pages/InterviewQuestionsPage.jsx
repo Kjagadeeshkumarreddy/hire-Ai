@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -19,11 +20,11 @@ import { useCandidateList } from '../hooks/useCandidates';
 import { candidateApi } from '../api/candidates';
 import { JobSelector } from '../components/common/JobSelector';
 
-const CategoryCard = ({ title, questions, icon: Icon, colorClass, delay }) => (
+const CategoryCard = ({ title, questions, icon: IconComponent, colorClass, delay }) => (
    <div className={`p-6 rounded-[32px] border-2 border-slate-800 bg-[#0A0A0B] animation-scale-in`} style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-center gap-4 mb-6">
          <div className={`p-3 rounded-2xl ${colorClass} bg-opacity-10`}>
-            <Icon size={24} className={colorClass.replace('bg-', 'text-')} />
+            <IconComponent size={24} className={colorClass.replace('bg-', 'text-')} />
          </div>
          <h3 className="text-xl font-black uppercase tracking-widest text-white">{title}</h3>
       </div>
@@ -39,60 +40,56 @@ const CategoryCard = ({ title, questions, icon: Icon, colorClass, delay }) => (
 );
 
 const InterviewQuestionsPage = () => {
+   const { t } = useTranslation();
    const navigate = useNavigate();
    const { data: jobs = [] } = useJobList();
    const [activeJobId, setActiveJobId] = useState('default-job');
    const { data: candidates = [], isLoading: fetchingCands } = useCandidateList(activeJobId);
    
    const [selectedCand, setSelectedCand] = useState(null);
-   const [mode, setMode] = useState('technical'); // technical or hr
+   const [mode, setMode] = useState('technical');
    const [questions, setQuestions] = useState(null);
    const [loading, setLoading] = useState(false);
    const [error, setError] = useState(null);
 
-   // Selection & Promotion States flawlessy
    const [selectedIds, setSelectedIds] = useState([]);
    const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
-   const [targetRound, setTargetRound] = useState('Technical Round');
+   const [targetRound, setTargetRound] = useState(t('shortlisted.technicalRound'));
    const [isPromoting, setIsPromoting] = useState(false);
 
-   // Sync with first job on load flawlessly
    useEffect(() => {
       if (jobs.length > 0 && (activeJobId === 'default-job' || !activeJobId)) {
          setActiveJobId(jobs[0].id);
       }
-   }, [jobs]);
+   }, [jobs, activeJobId]);
 
-   // Fetch questions when mode changes flawlessly
-   useEffect(() => {
-      if (selectedCand) {
-         loadQuestions(selectedCand);
-      }
-   }, [mode]);
-
-   const shortlisted = candidates.filter(c => c.is_shortlisted);
-
-   const loadQuestions = async (cand) => {
+   const loadQuestions = React.useCallback(async (cand) => {
       setSelectedCand(cand);
       setLoading(true);
       setError(null);
       setQuestions(null);
       try {
-         // Check if questions exist first - Passing mode flawlessly
          const existing = await candidateApi.getQuestions(cand.id, mode);
          if (existing && (existing.easy || existing.hard)) {
             setQuestions(existing);
          } else {
-            // Generate them with extended Neural Resilience (60s timeout)
             const generated = await candidateApi.generateQuestions(cand.id, mode);
             setQuestions(generated);
          }
-      } catch (err) {
+      } catch (_err) {
          setError(`The Neural Forge is taking a moment to synthesize ${mode} insights. Please retry in 10 seconds.`);
       } finally {
          setLoading(false);
       }
-   };
+   }, [mode]);
+
+   useEffect(() => {
+      if (selectedCand) {
+         loadQuestions(selectedCand);
+      }
+   }, [mode, selectedCand, loadQuestions]);
+
+   const shortlisted = candidates.filter(c => c.is_shortlisted);
 
    const toggleSelection = (e, id) => {
       e.stopPropagation();
@@ -104,7 +101,7 @@ const InterviewQuestionsPage = () => {
    const handlePromote = async () => {
       if (selectedIds.length === 0) return;
       
-      if (targetRound === "Generate Offer Letter") {
+      if (targetRound === t('shortlisted.generateOfferLetter')) {
          localStorage.setItem('offer_letter_engine_active', 'true');
       }
 
@@ -118,13 +115,12 @@ const InterviewQuestionsPage = () => {
          setSelectedIds([]);
          setIsPromoteModalOpen(false);
          
-         if (targetRound === "Generate Offer Letter") {
+         if (targetRound === t('shortlisted.generateOfferLetter')) {
             navigate('/offer-letter');
          } else {
-            // Refresh list to show new job flawlessly
             window.location.reload();
          }
-      } catch (err) {
+      } catch (_err) {
          alert("Synthesis Error: Could not promote candidates to next lab.");
       } finally {
          setIsPromoting(false);
@@ -133,7 +129,6 @@ const InterviewQuestionsPage = () => {
 
    return (
       <div className="max-w-[1600px] mx-auto h-full flex flex-col gap-8 pb-12">
-         {/* Header Studio flawlessly */}
          <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-8 rounded-[48px] bg-surface border border-border/50 shadow-2xl relative group">
             <div className="absolute top-0 right-0 w-96 h-96 bg-primary-500/5 blur-[120px] rounded-full -mr-48 -mt-48 transition-all group-hover:bg-primary-500/10" />
             
@@ -142,10 +137,10 @@ const InterviewQuestionsPage = () => {
                   <MessageSquare size={36} className="text-white" />
                </div>
                <div>
-                  <h1 className="text-2xl font-black tracking-tight text-white mb-2">Interview <span className="text-primary-500 italic">Forge</span></h1>
+                  <h1 className="text-2xl font-black tracking-tight text-white mb-2">{t('interview.interview')} <span className="text-primary-500 italic">{t('interview.forge')}</span></h1>
                   <p className="text-text-muted font-medium flex items-center gap-2">
                      <BrainCircuit size={16} className="text-primary-400" />
-                     Synthesizing JD, Resume & GitHub Code for personalized technical dossiers
+                     {t('interview.synthesizingDossiers')}
                   </p>
                </div>
             </div>
@@ -162,12 +157,12 @@ const InterviewQuestionsPage = () => {
          <div className="flex-1 flex flex-col xl:flex-row gap-8 min-h-0">
             {/* Candidate Sidebar Hub flawlessy */}
             <div className="w-full xl:w-[35%] flex flex-col gap-4 overflow-hidden shrink-0">
-               <h2 className="text-xs font-black uppercase tracking-[0.4em] text-primary-500/60 ml-4 mb-2">Shortlisted Talent</h2>
+               <h2 className="text-xs font-black uppercase tracking-[0.4em] text-primary-500/60 ml-4 mb-2">{t('campaign.shortlistedTalent')}</h2>
                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
                   {fetchingCands ? (
                      <div className="flex flex-col items-center justify-center p-12 gap-4">
                         <Loader2 size={32} className="animate-spin text-primary-500/30" />
-                        <span className="text-text-muted text-xs font-bold uppercase tracking-widest">Hydrating Hub...</span>
+                        <span className="text-text-muted text-xs font-bold uppercase tracking-widest">{t('interview.hydratingHub')}</span>
                      </div>
                   ) : shortlisted.length > 0 ? (
                       shortlisted.map((cand) => (
@@ -199,8 +194,8 @@ const InterviewQuestionsPage = () => {
                               <div className="flex-1 min-w-0">
                                  <h3 className="font-semibold text-white truncate group-hover:text-primary-400 transition-colors">{cand.full_name}</h3>
                                  <div className="flex items-center gap-3 mt-1 text-[10px] font-black uppercase tracking-wider text-text-muted">
-                                    <span className="flex items-center gap-1"><Zap size={10} className="text-amber-400" /> API V4</span>
-                                    {cand.github_username && <span className="flex items-center gap-1 text-primary-500 bg-primary-500/30 p-1 rounded-lg"><Code size={10} /> show questions</span>}
+                                    <span className="flex items-center gap-1"><Zap size={10} className="text-amber-400" /> {t('interview.apiV4')}</span>
+                                    {cand.github_username && <span className="flex items-center gap-1 text-primary-500 bg-primary-500/30 p-1 rounded-lg"><Code size={10} /> {t('interview.showQuestions')}</span>}
                                  </div>
                               </div>
                               <ChevronRight size={20} className={`text-text-muted transition-all ${selectedCand?.id === cand.id ? 'translate-x-1 text-primary-500 opacity-100' : 'opacity-0'}`} />
@@ -210,8 +205,8 @@ const InterviewQuestionsPage = () => {
                   ) : (
                      <div className="p-8 text-center glass-panel border-dashed border-2 rounded-[32px]">
                         <User size={32} className="mx-auto text-text-muted opacity-20 mb-4" />
-                        <p className="text-text-muted font-bold text-sm">No Shortlisted Candidates Found</p>
-                        <p className="text-text-muted text-[10px] uppercase tracking-widest mt-2">Filter active JD or approve talent first</p>
+                        <p className="text-text-muted font-bold text-sm">{t('interview.noShortlistedFound')}</p>
+                        <p className="text-text-muted text-[10px] uppercase tracking-widest mt-2">{t('interview.filterActiveJD')}</p>
                      </div>
                   )}
                </div>
@@ -220,13 +215,13 @@ const InterviewQuestionsPage = () => {
                   <div className="mt-4 p-4 bg-primary-500/10 border border-primary-500/20 rounded-[24px] animate-slide-up">
                      <div className="flex items-center justify-between mb-4">
                         <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">{selectedIds.length} Selected</span>
-                        <button onClick={() => setSelectedIds([])} className="text-[10px] font-black uppercase text-text-muted hover:text-white">Clear</button>
+                        <button onClick={() => setSelectedIds([])} className="text-[10px] font-black uppercase text-text-muted hover:text-white">{t('shortlisted.clear')}</button>
                      </div>
                      <button 
                         onClick={() => setIsPromoteModalOpen(true)}
                         className="w-full py-3 bg-primary-500 text-white rounded-xl font-black uppercase tracking-widest text-xs shadow-lg shadow-primary-500/20 hover:scale-[1.02] transition-all active:scale-95"
                      >
-                        Move to Next
+                        {t('shortlisted.moveToNext')}
                      </button>
                   </div>
                )}
@@ -239,24 +234,24 @@ const InterviewQuestionsPage = () => {
                      <div className="w-24 h-24 bg-primary-500/5 rounded-[32px] flex items-center justify-center mb-8">
                         <BrainCircuit size={48} className="text-primary-500/20" />
                      </div>
-                     <h2 className="text-2xl font-black text-white mb-3">Neural Forge Ready</h2>
+                     <h2 className="text-2xl font-black text-white mb-3">{t('interview.neuralForgeReady')}</h2>
                      <p className="text-text-muted max-w-md text-center font-medium leading-relaxed">
-                        Select a candidate from the recruitment hub to audit their GitHub projects and Resume for personalized interview questions.
+                        {t('interview.selectCandidate')}
                      </p>
                   </div>
                ) : loading ? (
                   <div className="h-full flex flex-col items-center justify-center bg-surface border border-border rounded-[56px] p-12 relative overflow-hidden">
                      <div className="absolute inset-0 bg-primary-500/2 animate-pulse" />
                      <Loader2 size={64} className="animate-spin text-primary-500 mb-8 relative z-10" />
-                     <h2 className="text-2xl font-black text-white mb-2 relative z-10 uppercase tracking-widest">Neural Question Forge</h2>
-                     <p className="text-primary-500/60 font-black text-xs uppercase tracking-[0.4em] relative z-10">Cross-referencing GitHub & Resume Labs</p>
+                     <h2 className="text-2xl font-black text-white mb-2 relative z-10 uppercase tracking-widest">{t('interview.neuralQuestionForge')}</h2>
+                     <p className="text-primary-500/60 font-black text-xs uppercase tracking-[0.4em] relative z-10">{t('interview.crossReferencing')}</p>
                   </div>
                ) : error ? (
                   <div className="h-full flex flex-col items-center justify-center bg-surface border border-red-500/20 rounded-[56px] p-12">
                      <AlertCircle size={48} className="text-red-500 mb-6" />
-                     <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-widest">Forge Timeout</h2>
+                     <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-widest">{t('interview.forgeTimeout')}</h2>
                      <p className="text-text-muted font-medium mb-8">{error}</p>
-                     <button onClick={() => loadQuestions(selectedCand)} className="px-8 py-3 bg-red-500/10 text-red-500 rounded-2xl font-black uppercase tracking-widest border border-red-500/20 hover:bg-red-500/20 transition-all">Retry Synthesis</button>
+                     <button onClick={() => loadQuestions(selectedCand)} className="px-8 py-3 bg-red-500/10 text-red-500 rounded-2xl font-black uppercase tracking-widest border border-red-500/20 hover:bg-red-500/20 transition-all">{t('interview.retrySynthesis')}</button>
                   </div>
                ) : questions ? (
                   <div className="h-full flex flex-col gap-6 animation-fade-in overflow-y-auto custom-scrollbar pr-4">
@@ -270,7 +265,7 @@ const InterviewQuestionsPage = () => {
                               <div className="flex items-center gap-4 text-xs font-black uppercase tracking-widest text-primary-500/60">
                                  <span className="flex items-center gap-1.5"><ShieldCheck size={14} /> ID: {selectedCand.anonymized_id || 'PRO-SECURE'}</span>
                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-800" />
-                                 <span className="text-slate-500">Analysis V1.0-Stable</span>
+                                 <span className="text-slate-500">{t('interview.analysisStable')}</span>
                               </div>
                            </div>
                         </div>
@@ -283,7 +278,7 @@ const InterviewQuestionsPage = () => {
                                  mode === 'technical' ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20' : 'text-slate-500 hover:text-white'
                               }`}
                            >
-                              Technical
+                              {t('interview.technical')}
                            </button>
                            <button 
                               onClick={() => setMode('hr')}
@@ -291,34 +286,34 @@ const InterviewQuestionsPage = () => {
                                  mode === 'hr' ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20' : 'text-slate-500 hover:text-white'
                               }`}
                            >
-                              HR / Behavioral
+                              {t('interview.hrBehavioral')}
                            </button>
                         </div>
 
                         <div className="flex items-center gap-2">
                            <div className="px-5 py-2.5 rounded-2xl bg-primary-500/10 text-primary-500 border border-primary-500/20 font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
-                              <CheckCircle2 size={12} /> {mode === 'technical' ? 'Dossier Validated' : 'Cultural Audit Ready'}
+                              <CheckCircle2 size={12} /> {mode === 'technical' ? t('interview.dossierValidated') : t('interview.culturalAuditReady')}
                            </div>
                         </div>
                      </div>
 
                      <div className="flex flex-col gap-8 pb-12">
                         <CategoryCard 
-                           title={mode === 'technical' ? 'Foundation' : 'Behavioral'} 
+                           title={mode === 'technical' ? t('interview.foundation') : t('interview.behavioral')} 
                            questions={questions.easy || []} 
                            icon={mode === 'technical' ? BookOpen : Users} 
                            colorClass={mode === 'technical' ? "bg-primary-500" : "bg-emerald-500"} 
                            delay={100} 
                         />
                         <CategoryCard 
-                           title={mode === 'technical' ? 'Application' : 'Scenarios'} 
+                           title={mode === 'technical' ? t('interview.application') : t('interview.scenarios')} 
                            questions={questions.medium || []} 
                            icon={mode === 'technical' ? Zap : AlertCircle} 
                            colorClass={mode === 'technical' ? "bg-amber-500" : "bg-indigo-500"} 
                            delay={200} 
                         />
                         <CategoryCard 
-                           title={mode === 'technical' ? 'Deep Dive' : 'Culture Fit'} 
+                           title={mode === 'technical' ? t('interview.deepDive') : t('interview.cultureFit')} 
                            questions={questions.hard || []} 
                            icon={mode === 'technical' ? BrainCircuit : ShieldCheck} 
                            colorClass={mode === 'technical' ? "bg-purple-500" : "bg-rose-500"} 
@@ -339,16 +334,16 @@ const InterviewQuestionsPage = () => {
                         <Zap size={28} className="text-primary-500" />
                      </div>
                      <div>
-                        <h2 className="text-2xl font-black text-white uppercase tracking-tight">Promote Talent</h2>
+                        <h2 className="text-2xl font-black text-white uppercase tracking-tight">{t('shortlisted.promoteTalent')}</h2>
                         <p className="text-text-muted text-sm font-medium">Select destination lab for {selectedIds.length} candidates</p>
                      </div>
                   </div>
 
                   <div className="space-y-6">
                      <div className="space-y-3">
-                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary-500/60 ml-1">Engagement Lab</label>
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary-500/60 ml-1">{t('shortlisted.engagementLab')}</label>
                         <div className="grid grid-cols-1 gap-3">
-                           {["Technical Round", "HR Round", "Generate Offer Letter"].map((round) => (
+                           {[t('shortlisted.technicalRound'), t('shortlisted.hrRound'), t('shortlisted.generateOfferLetter')].map((round) => (
                               <div 
                                  key={round}
                                  onClick={() => setTargetRound(round)}
@@ -370,7 +365,7 @@ const InterviewQuestionsPage = () => {
                            onClick={() => setIsPromoteModalOpen(false)}
                            className="flex-1 py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-white/10 transition-all"
                         >
-                           Abort
+                           {t('shortlisted.abort')}
                         </button>
                         <button 
                            onClick={handlePromote}
@@ -380,10 +375,10 @@ const InterviewQuestionsPage = () => {
                            {isPromoting ? (
                               <>
                                  <Loader2 size={16} className="animate-spin" />
-                                 Synthesizing...
+                                 {t('interview.synthesizing')}
                               </>
                            ) : (
-                              'Execute Promotion'
+                              t('shortlisted.executePromotion')
                            )}
                         </button>
                      </div>

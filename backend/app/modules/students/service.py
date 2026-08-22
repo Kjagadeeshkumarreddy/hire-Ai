@@ -31,6 +31,7 @@ class StudentService:
     async def run_self_assessment(
         user_id: UUID, 
         resume_bytes: bytes, 
+        filename: str,
         github_username: str, 
         jd_text: str,
         db: AsyncSession
@@ -41,7 +42,7 @@ class StudentService:
         logger.info("student.assessment.started", user_id=str(user_id), github=github_username)
         
         # 1. Parse Resume
-        resume_data = ResumeParserService.parse_pdf_in_memory(resume_bytes)
+        resume_data = ResumeParserService.parse_file_in_memory(resume_bytes, filename)
         raw_resume_text = resume_data.get("raw_text", "")
         
         # 1b. Structured Extraction
@@ -214,3 +215,38 @@ class StudentService:
         result = await db.execute(stmt)
         await db.commit()
         return result.rowcount > 0
+
+    @staticmethod
+    async def convert_resume(resume_bytes: bytes, filename: str, template_text: str) -> str:
+        """
+        Convert a resume PDF into a specific template format flawlessly.
+        """
+        logger.info("student.resume_conversion.started")
+        
+        # 1. Parse Resume
+        resume_data = ResumeParserService.parse_file_in_memory(resume_bytes, filename)
+        raw_resume_text = resume_data.get("raw_text", "")
+        
+        # 2. Convert using template
+        prompt = f"""
+        You are an expert resume writer and formatting specialist. 
+        Your task is to take the content from the provided resume and re-format it to EXACTLY match the structure and style of the given resume template.
+        
+        INPUT RESUME TEXT:
+        {raw_resume_text[:8000]} 
+        
+        RESUME TEMPLATE:
+        {template_text[:4000]}
+        
+        STRICT RULES:
+        1. Maintain all professional facts, dates, and details from the input resume.
+        2. Adapt the content to the template's structure. If the template uses specific headers or bullet styles, use them.
+        3. If the template has placeholders (like [Name], [Phone]), replace them with actual data from the resume.
+        4. Return the final resume in clear, professional Markdown format.
+        5. DO NOT add any conversational filler. Return ONLY the markdown resume.
+        """
+        
+        messages = [HumanMessage(content=prompt)]
+        converted_resume = await cached_llm_invoke(messages)
+        
+        return converted_resume

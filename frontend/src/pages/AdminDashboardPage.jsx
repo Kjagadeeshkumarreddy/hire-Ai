@@ -1,9 +1,10 @@
+import { useTranslation } from 'react-i18next';
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Users, Briefcase, UserCheck, Activity, Database, Server, BarChart3, ShieldCheck } from 'lucide-react';
 import apiClient from '../api/client';
 
-const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
+const StatCard = ({ title, value, icon: IconComponent, color, subtitle }) => (
   <div className="bg-surface border border-border rounded-2xl p-6 shadow-xl shadow-black/20 group hover:border-primary-500/30 transition-all duration-300">
     <div className="flex items-start justify-between">
       <div className="space-y-2">
@@ -12,20 +13,21 @@ const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
         {subtitle && <p className="text-[10px] text-text-muted font-medium italic">{subtitle}</p>}
       </div>
       <div className={`p-3 rounded-xl ${color} bg-opacity-10 text-${color.split('-')[1]}-500 shadow-lg shadow-${color.split('-')[1]}-500/10 group-hover:scale-110 transition-transform`}>
-        <Icon size={24} />
+        <IconComponent size={24} />
       </div>
     </div>
   </div>
 );
 
 const AdminDashboardPage = () => {
+  const { t } = useTranslation();
   const { data: stats, isLoading, error } = useQuery({
     queryKey: ['admin-stats'],
     queryFn: async () => {
       const response = await apiClient.get('/admin/stats');
       return response.data;
     },
-    refetchInterval: 30000 // Refresh every 30s
+    refetchInterval: 30000
   });
 
   if (isLoading) {
@@ -55,7 +57,7 @@ const AdminDashboardPage = () => {
             <ShieldCheck size={20} />
             <span className="text-[10px] font-black uppercase tracking-[0.2em]">Administrative Oversight</span>
           </div>
-          <h1 className="text-4xl font-black text-white tracking-tight">Platform Overview</h1>
+          <h1 className="text-4xl font-black text-white tracking-tight">{t('adminDash.title')}</h1>
           <p className="text-text-muted">Real-time telemetry from the PostgreSQL and LangGraph matrices.</p>
         </div>
         <div className="hidden lg:flex items-center gap-4 px-4 py-2 bg-surface border border-border rounded-xl">

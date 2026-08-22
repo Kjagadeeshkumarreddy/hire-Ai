@@ -10,12 +10,14 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.config import settings
 from app.db.models import Base
+import sys
 
 # Alembic Config object
 config = context.config
 
 # Set the SQLAlchemy URL from our app settings
-config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url)
+# Escape '%' for ConfigParser interpolation safety when the URL contains percent-encodings
+config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url.replace('%', '%%'))
 
 # Setup logging from alembic.ini
 if config.config_file_name is not None:
@@ -23,6 +25,13 @@ if config.config_file_name is not None:
 
 # Target metadata for autogenerate support
 target_metadata = Base.metadata
+
+# On Windows, psycopg's async connections require the SelectorEventLoop policy
+if sys.platform == 'win32':
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
 
 
 def run_migrations_offline() -> None:

@@ -19,7 +19,7 @@ def ensure_db_exists():
     
     try:
         # Connect to default 'postgres' database synchronously to avoid event loop issues on Windows
-        with psycopg.connect(postgres_url, autocommit=True) as conn:
+        with psycopg.connect(postgres_url, autocommit=True, prepare_threshold=None) as conn:
             with conn.cursor() as cur:
                 # Check if database exists
                 cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
@@ -36,12 +36,23 @@ def ensure_db_exists():
         logger.error("database.creation_failed", error=str(e))
 
 async def init_models(max_retries=3):
-    """ create all tables defined in models, with retry for transient connection drops. """
+    """ create all tables defined in models, with retry for transient connection drops flawlessy. """
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+    
+    # Create a dedicated engine for schema initialization to avoid pool-level issues
+    init_engine = create_async_engine(
+        settings.sqlalchemy_url,
+        poolclass=NullPool,
+        connect_args={"prepare_threshold": None}
+    )
+    
     for attempt in range(1, max_retries + 1):
         try:
-            async with engine.begin() as conn:
+            async with init_engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("database.schema_initialized")
+            await init_engine.dispose()
             return
         except Exception as e:
             logger.warning("database.schema_init_retry", attempt=attempt, error=str(e))
@@ -56,7 +67,10 @@ async def enforce_rls():
         "users", "jobs", "candidates", "jd_versions", "scores", 
         "resumes", "audit_logs", "github_analysis", "interview_questions", 
         "pipeline_runs", "email_logs", "saved_offer_letters", "student_assessments",
-        "checkpoint_migrations", "checkpoints", "checkpoint_writes", "checkpoint_blobs"
+        "offer_signatures", "resume_style_templates", "style_transfer_jobs",
+        "checkpoint_migrations", "checkpoints", "checkpoint_writes", "checkpoint_blobs",
+        "tech_recruiter_credentials", "technical_marks", "alembic_version", "category_marks", "assessment_categories",
+        "interview_schedules", "interview_slots"
     ]
     
     try:

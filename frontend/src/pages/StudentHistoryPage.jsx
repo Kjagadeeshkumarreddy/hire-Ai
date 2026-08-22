@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect } from 'react';
 import { 
   History, Trash2, Calendar, Target, 
@@ -50,11 +51,11 @@ const DossierModal = ({ audit, onClose }) => {
               <div className="space-y-8">
                  <div className="text-center p-8 bg-surface-dark rounded-3xl border border-border">
                     <div className="relative inline-block mb-4">
-                       <svg className="w-32 h-32 transform -rotate-90">
-                         <circle cx="64" cy="64" r="58" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-border" />
-                         <circle cx="64" cy="64" r="58" stroke="currentColor" strokeWidth="8" fill="transparent" 
-                           strokeDasharray={364.4}
-                           strokeDashoffset={364.4 - (364.4 * audit.score) / 100}
+                       <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 128 128" style={{ overflow: 'visible' }}>
+                         <circle cx="64" cy="64" r="50" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-border" />
+                         <circle cx="64" cy="64" r="50" stroke="currentColor" strokeWidth="8" fill="transparent" 
+                           strokeDasharray={314.16}
+                           strokeDashoffset={314.16 - (314.16 * audit.score) / 100}
                            className="text-primary-500" 
                          />
                        </svg>
@@ -240,6 +241,7 @@ const DossierModal = ({ audit, onClose }) => {
 };
 
 const StudentHistoryPage = () => {
+  const { t } = useTranslation();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedAudit, setSelectedAudit] = useState(null);
@@ -255,7 +257,7 @@ const StudentHistoryPage = () => {
       setLoading(true);
       const { data } = await apiClient.get('/students/history');
       setHistory(data);
-    } catch (err) {
+    } catch (_err) {
       console.error("Failed to fetch history");
     } finally {
       setLoading(false);
@@ -268,7 +270,7 @@ const StudentHistoryPage = () => {
       const { data } = await apiClient.get(`/students/assessment/${id}`);
       setSelectedAudit(data);
       setIsModalOpen(true);
-    } catch (err) {
+    } catch (_err) {
       alert("Failed to access secure dossier. Please try again.");
     } finally {
       setFetchingDetails(false);
@@ -281,7 +283,7 @@ const StudentHistoryPage = () => {
     try {
       await apiClient.delete(`/students/${id}`);
       setHistory(prev => prev.filter(h => h.id !== id));
-    } catch (err) {
+    } catch (_err) {
       alert("Failed to delete assessment.");
     }
   };
@@ -299,7 +301,7 @@ const StudentHistoryPage = () => {
               </div>
               <span className="text-sm font-bold tracking-widest uppercase opacity-80">History Hub</span>
             </div>
-            <h1 className="text-4xl font-black mb-2">Past Audits</h1>
+            <h1 className="text-4xl font-black mb-2">{t('studentHistory.title')}</h1>
             <p className="text-primary-100 max-w-xl text-lg">
               Review and manage your historical neural assessments. 
               Track your growth mapping flawlessy.

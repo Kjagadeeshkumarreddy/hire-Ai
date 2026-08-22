@@ -1,9 +1,11 @@
+import { useTranslation } from 'react-i18next';
 import React, { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, File, X, Loader2 } from 'lucide-react';
+import { Upload, Loader2 } from 'lucide-react';
 import { useCandidateMutations } from '../../hooks/useCandidates';
 
 export const UploadZone = ({ jobId }) => {
+  const { t } = useTranslation();
   const { uploadBatch } = useCandidateMutations();
   const navigate = useNavigate();
   const [zipFile, setZipFile] = useState(null);
@@ -26,13 +28,11 @@ export const UploadZone = ({ jobId }) => {
   const handleFileSelect = (e) => {
     processFiles(Array.from(e.target.files));
   };
-
-  const [generatedJobId] = useState(() => crypto.randomUUID());
   
   const submitBatch = () => {
     if (!excel || !zipFile) return;
     if (!jobId) {
-       alert("Please select a target JD Context before uploading.");
+       alert(t('uploadZone.selectJDContext'));
        return;
     }
     
@@ -40,7 +40,6 @@ export const UploadZone = ({ jobId }) => {
       { jobId, zipFile, excelFile: excel },
       {
         onSuccess: () => {
-          // Slight delay to allow the user to see the success state flawlessy
           setTimeout(() => {
             navigate('/candidates');
           }, 1500);
@@ -63,15 +62,15 @@ export const UploadZone = ({ jobId }) => {
       <div 
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
-        onClick={() => fileInputRef.current.click()}
+        onClick={() => fileInputRef.current?.click()}
         className="w-full border-2 border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center hover:border-primary-500 hover:bg-primary-500/5 transition-all cursor-pointer bg-surface/50 group"
       >
         <div className="w-16 h-16 rounded-full bg-primary-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
           <Upload size={32} className="text-primary-500" />
         </div>
-        <h3 className="text-xl font-bold text-white mb-2">Drop Candidate Archive</h3>
+        <h3 className="text-xl font-bold text-white mb-2">{t('uploadZone.dropArchive')}</h3>
         <p className="text-text-muted max-w-sm mb-6">
-          Click to browse or drop your sourcing `.xlsx` and the `.zip` archive containing resumé PDFs. 
+          {t('uploadZone.dropDescription')} 
         </p>
       </div>
 
@@ -80,13 +79,13 @@ export const UploadZone = ({ jobId }) => {
           <div className="flex items-center gap-2 text-sm">
             <span className={`w-3 h-3 rounded-full ${excel ? 'bg-green-500' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
             <span className={excel ? 'text-white font-medium' : 'text-text-muted'}>
-              {excel ? excel.name : 'Excel Missing'}
+              {excel ? excel.name : t('uploadZone.excelMissing')}
             </span>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <span className={`w-3 h-3 rounded-full ${zipFile ? 'bg-green-500' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
             <span className={zipFile ? 'text-white font-medium' : 'text-text-muted'}>
-              {zipFile ? zipFile.name : 'Zip Archive Missing'}
+              {zipFile ? zipFile.name : t('uploadZone.zipMissing')}
             </span>
           </div>
         </div>
@@ -97,15 +96,15 @@ export const UploadZone = ({ jobId }) => {
           className="btn-primary flex items-center gap-2 disabled:opacity-50 min-w-[200px] justify-center"
         >
           {uploadBatch.isPending && <Loader2 size={16} className="animate-spin" />}
-          {uploadBatch.isPending ? 'Processing Engine...' : 'Execute Agentic Ingestion'}
+          {uploadBatch.isPending ? t('uploadZone.processingEngine') : t('uploadZone.executeIngestion')}
         </button>
-                {uploadBatch.isSuccess && (
-            <p className="mt-2 text-green-500">Upload successful!</p>
-          )}
-          {uploadBatch.isError && (
-            <p className="mt-2 text-red-500">Error: {uploadBatch.error.message}</p>
-          )}
-        </div>
+      </div>
+      {uploadBatch.isSuccess && (
+        <p className="mt-2 text-green-500">{t('uploadZone.uploadSuccessful')}</p>
+      )}
+      {uploadBatch.isError && (
+        <p className="mt-2 text-red-500">Error: {uploadBatch.error.message}</p>
+      )}
     </div>
   );
 };

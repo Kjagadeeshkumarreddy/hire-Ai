@@ -25,7 +25,7 @@ const CandidateDashboard = () => {
 
   const { data: candidates = [], isLoading, refetch } = useCandidateList(selectedJobId);
   const { data: jobs = [] } = useJobList();
-  const { bulkInvestigate } = useCandidateMutations();
+  const { bulkInvestigate: _bulkInvestigate } = useCandidateMutations();
 
   const activeJob = jobs.find(j => j.id === selectedJobId);
 
@@ -118,7 +118,7 @@ const CandidateDashboard = () => {
                 setInvestigating(false);
               }, 2500);
             }
-          } catch (e) {
+          } catch (_e) {
             console.warn("Fragmented data in bulk stream", trimmed);
           }
         }
@@ -139,7 +139,7 @@ const CandidateDashboard = () => {
         </div>
         
         <div className="flex flex-wrap items-center gap-4">
-          <JobSelector activeJobId={selectedJobId} onSelect={handleJobSelect} filterType="interview" />
+          <JobSelector activeJobId={selectedJobId} onSelect={handleJobSelect} filterType="interview" hideSubRoles={true} />
           
           <label className="flex items-center gap-2 cursor-pointer bg-surface/50 border border-white/10 px-4 py-2 rounded-xl hover:border-primary-500/50 transition-all backdrop-blur-md">
             <span className={`text-xs font-bold uppercase tracking-wider ${biasFree ? 'text-primary-500' : 'text-text-muted'}`}>Bias-Free</span>

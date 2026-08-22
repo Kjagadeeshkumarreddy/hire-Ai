@@ -1,17 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
    FileText, Download, Send, UserCheck, ShieldCheck, 
    Loader2, CheckCircle2, Sparkles, Layout, Eye, 
    Edit3, ChevronLeft, ChevronRight, Users, MessageSquare,
-   Wand2, Zap, RotateCcw, X, Clock
+   Wand2, Zap, RotateCcw, X, Clock, PenTool
 } from 'lucide-react';
 import { JobSelector } from '../components/common/JobSelector';
 import { useCandidateList } from '../hooks/useCandidates';
 import { useJobList } from '../hooks/useJD';
 import { jdApi } from '../api/jd';
 import { candidateApi } from '../api/candidates';
+import { esignApi } from '../api/esign';
 
 const OfferLetterPage = () => {
+   const { t } = useTranslation();
+   const navigate = useNavigate();
    const { data: jobs = [] } = useJobList();
    const [activeJobId, setActiveJobId] = useState('');
    const { data: candidates = [], isLoading: fetchingCands } = useCandidateList(activeJobId);
@@ -33,6 +38,11 @@ const OfferLetterPage = () => {
    const [isVaultOpen, setIsVaultOpen] = useState(false);
    const [savedOffers, setSavedOffers] = useState([]);
    const [saving, setSaving] = useState(false);
+
+   // Custom Expiry Modal State
+   const [isExpiryModalOpen, setIsExpiryModalOpen] = useState(false);
+   const [expiryDaysInput, setExpiryDaysInput] = useState('7');
+   const [pendingReleaseTargets, setPendingReleaseTargets] = useState(null);
 
    // Filter jobs to find offer roles
    const offerJobs = jobs.filter(j => j.status === 'offer');
@@ -74,34 +84,70 @@ const OfferLetterPage = () => {
       }
    };
 
-   // Release Logic
-   const handleRelease = async () => {
-      const targets = checkedIds.size > 0 
-         ? candidates.filter(c => checkedIds.has(c.id))
-         : (selectedCand ? [selectedCand] : []);
+    // Release Logic
+    const handleRelease = async () => {
+       const targets = checkedIds.size > 0 
+          ? candidates.filter(c => checkedIds.has(c.id))
+          : (selectedCand ? [selectedCand] : []);
+ 
+       if (targets.length === 0 || !offerHtml) {
+          alert("Please select a candidate or check candidates to release.");
+          return;
+       }
 
-      if (targets.length === 0 || !offerHtml) return;
-      
-      setSending(true);
-      setSendSuccess(false);
-      
-      let successCount = 0;
+       setPendingReleaseTargets(targets);
+       setExpiryDaysInput('7');
+       setIsExpiryModalOpen(true);
+    };
+
+    const handleConfirmExpiry = async () => {
+       const expiryDays = parseInt(expiryDaysInput) || 7;
+       setIsExpiryModalOpen(false);
+
+       if (pendingReleaseTargets) {
+          const targets = pendingReleaseTargets;
+          setPendingReleaseTargets(null);
+          
+          setSending(true);
+          setSendSuccess(false);
+          
+          let successCount = 0;
+          try {
+             for (const cand of targets) {
+                const saveRes = await candidateApi.saveOfferProgress(cand.id, {
+                   subject: `Official Employment Offer: ${sanitizeTitle(activeJob?.title)}`,
+                   content: offerHtml,
+                   job_id: activeJobId
+                });
+                
+                if (saveRes && saveRes.id) {
+                   await esignApi.createSigningRequest(saveRes.id, expiryDays);
+                   successCount++;
+                } else {
+                   throw new Error(`Failed to save draft for ${cand.full_name}`);
+                }
+             }
+             setSendSuccess(true);
+             alert(targets.length > 1 
+                ? `Successfully dispatched ${successCount} e-signature requests!`
+                : "E-signature request dispatched successfully!"
+             );
+             navigate('/esign-status');
+          } catch (err) {
+             console.error("Release failed", err);
+             alert(`Failed to complete batch release. ${successCount} successful before error: ${err.response?.data?.detail || err.message || err}`);
+          } finally {
+             setSending(false);
+          }
+       }
+    };
+
+   const fetchSavedOffers = async () => {
       try {
-         for (const cand of targets) {
-            await candidateApi.sendOfferLetter(cand.id, {
-               subject: `Official Employment Offer: ${sanitizeTitle(activeJob?.title)}`,
-               header: "OFFER DOSSIER",
-               content: personalize(offerHtml, cand) // Use personalized HTML for each recipient
-            });
-            successCount++;
-         }
-         setSendSuccess(true);
-         setTimeout(() => setSendSuccess(false), 5000);
+         const data = await candidateApi.getSavedOffers();
+         setSavedOffers(data);
       } catch (err) {
-         console.error("Release failed", err);
-         alert(`Failed to complete batch release. ${successCount} successful before error.`);
-      } finally {
-         setSending(false);
+         console.error("Vault fetch failed", err);
       }
    };
 
@@ -124,23 +170,9 @@ const OfferLetterPage = () => {
       }
    };
 
-   const fetchSavedOffers = async () => {
-      try {
-         const data = await candidateApi.getSavedOffers();
-         setSavedOffers(data);
-      } catch (err) {
-         console.error("Vault fetch failed", err);
-      }
-   };
-
-   useEffect(() => {
-      fetchSavedOffers();
-   }, []);
-
-   const loadSavedOffer = (offer) => {
+    const loadSavedOffer = (offer) => {
       setOfferHtml(offer.content);
       setIsVaultOpen(false);
-      // Attempt to find and select the candidate flawlessly
       const cand = candidates.find(c => c.id === offer.candidate_id);
       if (cand) setSelectedCand(cand);
    };
@@ -155,15 +187,17 @@ const OfferLetterPage = () => {
 
    const toggleOne = (id) => {
       const next = new Set(checkedIds);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+         next.delete(id);
+      } else {
+         next.add(id);
+      }
       setCheckedIds(next);
    };
 
    // Local Personalization Engine
    const sanitizeTitle = (title) => {
       if (!title) return "Specialist";
-      // Removes common workflow suffixes like " - Generate Offer Letter" or " (Engineering)"
       return title.split(' - ')[0].split(' (')[0].trim();
    };
 
@@ -180,6 +214,10 @@ const OfferLetterPage = () => {
          .replace(/{{salary}}/g, "Competitive Market Rate");
    };
 
+   useEffect(() => {
+      fetchSavedOffers();
+   }, []);
+
    return (
       <div className="h-screen bg-background flex flex-col overflow-hidden">
          {/* Studio Header */}
@@ -191,9 +229,9 @@ const OfferLetterPage = () => {
                   </div>
                   <div>
                      <h1 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                        Offer <span className="text-primary-500 italic">Studio</span>
+                        {t('offerLetter.offerStudio')} <span className="text-primary-500 italic">{t('offerLetter.studio')}</span>
                      </h1>
-                     <p className="text-[9px] text-text-muted font-bold uppercase tracking-tight">AI-Refined Dossier Engine</p>
+                     <p className="text-[9px] text-text-muted font-bold uppercase tracking-tight">{t('offerLetter.aiRefinedEngine')}</p>
                   </div>
                </div>
 
@@ -206,7 +244,7 @@ const OfferLetterPage = () => {
                   }`}
                >
                   <Users size={14} />
-                  {isSidebarOpen ? 'Hide Pool' : 'View Pool'}
+                  {isSidebarOpen ? t('offerLetter.hidePool') : t('offerLetter.viewPool')}
                </button>
             </div>
 
@@ -224,11 +262,11 @@ const OfferLetterPage = () => {
                   className="flex items-center gap-2 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white hover:bg-white/10 transition-all text-[11px] font-black uppercase tracking-widest shrink-0"
                >
                   <RotateCcw size={14} className="text-primary-500" />
-                  Saved Offers
+                  {t('offerLetter.savedOffers')}
                </button>
                <div className="h-8 w-px bg-white/5 mx-2 shrink-0" />
                <button className="px-6 py-2.5 bg-primary-500 text-white rounded-xl font-black text-[11px] uppercase tracking-widest shadow-lg shadow-primary-500/20 hover:scale-105 active:scale-95 transition-all shrink-0">
-                  Finalize Dossier
+                  {t('offerLetter.finalizeDossier')}
                </button>
             </div>
          </header>
@@ -250,7 +288,7 @@ const OfferLetterPage = () => {
                          onChange={toggleAll}
                          className="w-3 h-3 rounded border-white/20 bg-white/5 checked:bg-primary-500 transition-all cursor-pointer accent-primary-500"
                       />
-                      <h3 className="text-[10px] font-black text-white uppercase tracking-[.2em]">Ready for Issuance</h3>
+                      <h3 className="text-[10px] font-black text-white uppercase tracking-[.2em]">{t('offerLetter.readyForIssuance')}</h3>
                    </div>
                    <span className="text-[9px] bg-primary-500/10 text-primary-500 px-2 py-0.5 rounded-md font-bold">{candidates.length} Pool</span>
                 </div>
@@ -288,7 +326,7 @@ const OfferLetterPage = () => {
                         </div>
                      ))
                   ) : (
-                     <p className="text-center text-[10px] text-text-muted mt-10">No candidates found.</p>
+                     <p className="text-center text-[10px] text-text-muted mt-10">{t('offerLetter.noCandidatesFound')}</p>
                   )}
                </div>
             </aside>
@@ -300,18 +338,18 @@ const OfferLetterPage = () => {
                <section className="w-full md:w-[400px] border-r border-white/5 flex flex-col bg-[#080809] z-10">
                   <div className="px-8 py-4 border-b border-white/5 flex items-center gap-3 bg-black/20">
                      <Wand2 size={14} className="text-primary-500" />
-                     <h3 className="text-[10px] font-black text-white uppercase tracking-[.2em]">Refinement Console</h3>
+                     <h3 className="text-[10px] font-black text-white uppercase tracking-[.2em]">{t('offerLetter.refinementConsole')}</h3>
                   </div>
                   
                   <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
                      <div className="space-y-4">
-                        <label className="text-[9px] font-black uppercase tracking-widest text-primary-500/60 ml-1">Instruct the Design AI</label>
+                        <label className="text-[9px] font-black uppercase tracking-widest text-primary-500/60 ml-1">{t('offerLetter.instructDesignAI')}</label>
                         <div className="relative group">
                            <textarea 
                               value={feedback}
                               onChange={(e) => setFeedback(e.target.value)}
                               className="w-full h-[200px] bg-white/5 border border-white/10 rounded-[32px] p-8 text-sm text-slate-300 font-medium leading-relaxed focus:outline-none focus:border-primary-500/50 transition-all resize-none shadow-inner"
-                              placeholder="e.g. 'Make the background light blue', 'Use a modern serif font', 'Add a highlighted signature section'..."
+                              placeholder={t('offerLetter.designPlaceholder')}
                            />
                            <div className="absolute top-4 right-4 opacity-20 group-focus-within:opacity-100 transition-opacity">
                               <Zap size={14} className="text-primary-500" />
@@ -331,16 +369,16 @@ const OfferLetterPage = () => {
                      <div className="p-6 bg-white/[0.02] border border-white/5 rounded-[32px] space-y-4">
                         <div className="flex items-center gap-2">
                            <ShieldCheck size={14} className="text-green-500" />
-                           <h4 className="text-[9px] font-black text-white uppercase tracking-widest">Active Constraints</h4>
+                           <h4 className="text-[9px] font-black text-white uppercase tracking-widest">{t('offerLetter.activeConstraints')}</h4>
                         </div>
                         <ul className="space-y-2">
                            <li className="text-[10px] text-text-muted flex items-center gap-2">
                               <div className="w-1 h-1 rounded-full bg-primary-500/40" />
-                              Design is preserved 1:1 for PDF
+                              {t('offerLetter.designPreserved')}
                            </li>
                            <li className="text-[10px] text-text-muted flex items-center gap-2">
                               <div className="w-1 h-1 rounded-full bg-primary-500/40" />
-                              Variables remain reactive
+                              {t('offerLetter.variablesReactive')}
                            </li>
                         </ul>
                      </div>
@@ -358,7 +396,7 @@ const OfferLetterPage = () => {
                   <div className="px-8 py-4 border-b border-white/5 flex items-center justify-between bg-black/20 relative z-10">
                      <div className="flex items-center gap-3">
                         <Eye size={14} className="text-primary-500" />
-                        <h3 className="text-[10px] font-black text-white uppercase tracking-[.2em]">Living Dossier Stage</h3>
+                        <h3 className="text-[10px] font-black text-white uppercase tracking-[.2em]">{t('offerLetter.livingDossierStage')}</h3>
                      </div>
                      {selectedCand && (
                         <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-green-500 text-[9px] font-black uppercase tracking-widest animation-fade-in">
@@ -375,16 +413,16 @@ const OfferLetterPage = () => {
                               <Loader2 size={64} className="animate-spin text-primary-500 relative" />
                            </div>
                            <div>
-                              <p className="text-sm font-black text-white uppercase tracking-[.4em] mb-2">Synthesizing Aesthetics</p>
-                              <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">Engineering formal structure...</p>
+                              <p className="text-sm font-black text-white uppercase tracking-[.4em] mb-2">{t('offerLetter.synthesizingAesthetics')}</p>
+                              <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">{t('offerLetter.engineeringStructure')}</p>
                            </div>
                         </div>
                      ) : !offerHtml ? (
                         <div className="flex-1 flex flex-col items-center justify-center text-center p-12">
                            <ShieldCheck size={48} className="text-white/5 mb-6" />
-                           <p className="text-text-muted text-sm font-medium italic">Ready to initialze candidate issuance dossier.</p>
+                           <p className="text-text-muted text-sm font-medium italic">{t('offerLetter.readyToInitialize')}</p>
                            <button onClick={() => jdApi.getOfferTemplate(activeJobId).then(d => setOfferHtml(d.html))} className="mt-6 text-[10px] text-primary-500 font-black uppercase tracking-widest hover:underline">
-                              Initialize Master HTML →
+                              {t('offerLetter.initializeMasterHTML')}
                            </button>
                         </div>
                      ) : (
@@ -402,41 +440,41 @@ const OfferLetterPage = () => {
                      )}
                   </div>
 
-                   <div className="p-8 border-t border-white/5 bg-black/20 flex gap-4 relative z-10">
-                      <button 
-                         onClick={handleSave}
-                         disabled={!selectedCand || loadingTemplate || !offerHtml || saving}
-                         className="flex-1 py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
-                      >
-                         {saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} 
-                         {saving ? 'Saving...' : 'Save Progress'}
-                      </button>
-                      <button 
-                         disabled={!selectedCand || loadingTemplate || !offerHtml}
-                         className="flex-1 py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
-                      >
-                         <Download size={14} /> Local Export (PDF)
-                      </button>
-                       <button 
-                          onClick={handleRelease}
-                          disabled={(checkedIds.size === 0 && !selectedCand) || loadingTemplate || !offerHtml || sending}
-                          className={`flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-30 ${
-                             sendSuccess 
-                                ? 'bg-green-500 text-white shadow-green-500/20' 
-                                : 'bg-primary-500 text-white shadow-primary-500/20 hover:scale-[1.02]'
-                          }`}
-                       >
-                          {sending ? <Loader2 size={14} className="animate-spin" /> : sendSuccess ? <CheckCircle2 size={14} /> : <Send size={14} />}
-                          {sending 
-                             ? (checkedIds.size > 1 ? `Issuing ${checkedIds.size}...` : 'Dispatching...') 
-                             : sendSuccess 
-                                ? 'Dossier(s) Released' 
-                                : checkedIds.size > 1 
-                                   ? `Batch Release (${checkedIds.size})`
-                                   : 'Release Electronically'
-                          }
-                       </button>
-                   </div>
+                  <div className="p-8 border-t border-white/5 bg-black/20 flex flex-wrap gap-4 relative z-10">
+                     <button 
+                        onClick={handleSave}
+                        disabled={!selectedCand || loadingTemplate || !offerHtml || saving}
+                        className="flex-1 min-w-[120px] py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
+                     >
+                        {saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} 
+                        {saving ? t('offerLetter.saving') : 'Save Progress'}
+                     </button>
+                     <button 
+                        disabled={!selectedCand || loadingTemplate || !offerHtml}
+                        className="flex-1 min-w-[120px] py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-30"
+                     >
+                        <Download size={14} /> Local Export (PDF)
+                     </button>
+                     <button 
+                        onClick={handleRelease}
+                        disabled={(checkedIds.size === 0 && !selectedCand) || loadingTemplate || !offerHtml || sending}
+                        className={`flex-1 min-w-[120px] py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-30 ${
+                           sendSuccess 
+                              ? 'bg-green-500 text-white shadow-green-500/20' 
+                              : 'bg-primary-500 text-white shadow-primary-500/20 hover:scale-[1.02]'
+                        }`}
+                     >
+                        {sending ? <Loader2 size={14} className="animate-spin" /> : sendSuccess ? <CheckCircle2 size={14} /> : <Send size={14} />}
+                        {sending 
+                           ? (checkedIds.size > 1 ? `Issuing ${checkedIds.size}...` : t('offerLetter.dispatching')) 
+                           : sendSuccess 
+                              ? 'Dossier(s) Released' 
+                              : checkedIds.size > 1 
+                                 ? `Batch Release (${checkedIds.size})`
+                                 : 'Release Electronically'
+                        }
+                     </button>
+                  </div>
                </section>
             </div>
          </main>
@@ -450,7 +488,7 @@ const OfferLetterPage = () => {
                         <div className="p-2 bg-primary-500/10 rounded-lg text-primary-500">
                            <RotateCcw size={20} />
                         </div>
-                        <h2 className="text-xl font-black text-white uppercase tracking-tight">Offer Vault</h2>
+                        <h2 className="text-xl font-black text-white uppercase tracking-tight">{t('offerLetter.offerVault')}</h2>
                      </div>
                      <button onClick={() => setIsVaultOpen(false)} className="p-2 hover:bg-white/5 rounded-full text-text-muted hover:text-white transition-all">
                         <X size={24} />
@@ -479,21 +517,84 @@ const OfferLetterPage = () => {
                                     <span>Saved on {new Date(offer.created_at).toLocaleString()}</span>
                                  </div>
                               </div>
-                              <button 
-                                 onClick={() => loadSavedOffer(offer)}
-                                 className="w-full py-3 bg-white/5 text-white hover:bg-primary-500 rounded-xl font-black uppercase tracking-widest text-[9px] transition-all"
-                               >
-                                 Load Draft flawlessly
-                               </button>
+                              <div className="flex gap-2">
+                                 <button 
+                                    onClick={() => loadSavedOffer(offer)}
+                                    className="w-full py-3 bg-white/5 text-white hover:bg-primary-500 rounded-xl font-black uppercase tracking-widest text-[9px] transition-all"
+                                 >
+                                    {t('offerLetter.loadDraft')}
+                                 </button>
+                              </div>
                            </div>
                         ))
                      ) : (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
                            <MessageSquare size={48} className="mb-4" />
-                           <p className="font-bold">The Vault is empty.</p>
-                           <p className="text-xs">Save progress on an offer letter to see it here.</p>
+                           <p className="font-bold">{t('offerLetter.vaultEmpty')}</p>
+                           <p className="text-xs">{t('offerLetter.saveProgress')}</p>
                         </div>
                      )}
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {/* Custom Expiry Modal */}
+         {isExpiryModalOpen && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+               <div className="w-full max-w-md bg-[#0A0A0B]/90 border border-white/10 rounded-[32px] p-8 shadow-2xl animate-scale-in relative overflow-hidden">
+                  {/* Glassmorphic Glow */}
+                  <div className="absolute -top-12 -right-12 w-32 h-32 bg-primary-500/10 blur-3xl rounded-full" />
+                  
+                  <div className="flex items-center gap-3 mb-6">
+                     <div className="p-3 bg-primary-500/10 rounded-2xl text-primary-500">
+                        <Clock size={20} />
+                     </div>
+                     <div>
+                        <h3 className="text-sm font-black text-white uppercase tracking-widest">
+                           Set Expiry Period
+                        </h3>
+                        <p className="text-[9px] text-text-muted font-bold uppercase tracking-tight">E-Signature Expiry Days</p>
+                     </div>
+                  </div>
+
+                  <p className="text-xs text-slate-400 font-medium leading-relaxed mb-6">
+                     Specify how many days the candidate has to review and sign the official offer letter before the secure link automatically expires.
+                  </p>
+
+                  <div className="space-y-4 mb-8">
+                     <label className="text-[9px] font-black uppercase tracking-widest text-primary-500/60 ml-1">
+                        Expiry Duration (Days)
+                     </label>
+                     <div className="relative">
+                        <input
+                           type="number"
+                           min="1"
+                           max="365"
+                           value={expiryDaysInput}
+                           onChange={(e) => setExpiryDaysInput(e.target.value)}
+                           className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 text-sm text-white font-bold focus:outline-none focus:border-primary-500/50 transition-all shadow-inner"
+                           placeholder="7"
+                        />
+                        <div className="absolute inset-y-0 right-6 flex items-center pointer-events-none text-xs text-text-muted font-bold">
+                           days
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="flex gap-4">
+                     <button
+                        onClick={() => setIsExpiryModalOpen(false)}
+                        className="flex-1 py-4 bg-white/5 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] border border-white/10 hover:bg-white/10 transition-all"
+                     >
+                        Cancel
+                     </button>
+                     <button
+                        onClick={handleConfirmExpiry}
+                        className="flex-1 py-4 bg-primary-500 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary-500/20 hover:scale-[1.02] transition-all"
+                     >
+                        Confirm & Send
+                     </button>
                   </div>
                </div>
             </div>

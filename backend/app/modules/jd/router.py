@@ -163,7 +163,8 @@ async def generate_jd(
         "input_department": request.department,
         "input_key_requirements": request.key_requirements,
         "input_seniority": request.seniority_level,
-        "input_tone": request.tone
+        "input_tone": request.tone,
+        "input_template_text": request.template_text
     }
     
     # Establish a request-bound connection for the checkpointer flawlessy
@@ -527,3 +528,48 @@ async def get_refined_offer_template(
         raise HTTPException(status_code=403, detail="Refinement denied.")
 
     return await refine_offer_template(id, request.html, request.feedback, db)
+
+from .schemas import OfferTemplateSaveRequest
+from app.db.models import SavedOffer
+
+@router.post("/{id}/offer-template/save")
+async def save_offer_template_endpoint(
+    id: UUID, 
+    request: OfferTemplateSaveRequest, 
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(hr_only)
+):
+    """Persist a manually edited offer template for a specific job flawlessly."""
+    user_id = UUID(user.get("sub"))
+    user_role = user.get("role")
+    
+    # 1. Verify Ownership
+    job = await db.get(Job, id)
+    if not job or (user_role != "admin" and job.created_by != user_id):
+        raise HTTPException(status_code=403, detail="Unauthorized template persistence attempt.")
+
+    # 2. Check for existing template (SavedOffer with candidate_id=None)
+    stmt = select(SavedOffer).where(
+        SavedOffer.job_id == id,
+        SavedOffer.candidate_id == None
+    )
+    res = await db.execute(stmt)
+    template = res.scalar_one_or_none()
+    
+    if not template:
+        template = SavedOffer(
+            job_id=id,
+            candidate_id=None,
+            created_by=user_id,
+            subject=request.subject or f"Master Offer: {job.title}",
+            content=request.html
+        )
+        db.add(template)
+    else:
+        template.content = request.html
+        if request.subject:
+            template.subject = request.subject
+        template.created_by = user_id
+        
+    await db.commit()
+    return {"status": "success", "message": "Master template saved to Vault flawlessly."}

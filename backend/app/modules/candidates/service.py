@@ -25,12 +25,16 @@ async def promote_candidates(job_id: UUID, candidate_ids: List[UUID], round_name
         return {"status": "error", "message": "Original job not found"}
 
     # 2. Determine Next Number
-    pattern = f"{original_job.title} - {round_name}%"
+    import re
+    # Strip any existing round suffix like " - Technical Round 1" or " - HR Round 2"
+    base_title = re.sub(r' - .*? Round \d+$', '', original_job.title)
+    
+    pattern = f"{base_title} - {round_name}%"
     count_stmt = select(func.count(Job.id)).where(Job.title.like(pattern))
     count_res = await db.execute(count_stmt)
     count = count_res.scalar() or 0
     next_number = count + 1
-    new_title = f"{original_job.title} - {round_name} {next_number}"
+    new_title = f"{base_title} - {round_name} {next_number}"
 
     # 3. Create New Job
     new_job = Job(
@@ -112,6 +116,30 @@ async def promote_candidates(job_id: UUID, candidate_ids: List[UUID], round_name
             )
             db.add(new_gh)
 
+        # Clone Score
+        from app.db.models import Score
+        s_stmt = select(Score).where(Score.candidate_id == old_id).order_by(Score.created_at.desc())
+        old_score = (await db.execute(s_stmt)).scalars().first()
+        if old_score:
+            new_score = Score(
+                candidate_id=new_cand.id,
+                job_id=new_job.id,
+                scoring_mode=old_score.scoring_mode,
+                resume_score=old_score.resume_score,
+                github_score=old_score.github_score,
+                skill_match_score=old_score.skill_match_score,
+                experience_score=old_score.experience_score,
+                education_score=old_score.education_score,
+                ai_enrichment_score=old_score.ai_enrichment_score,
+                authenticity_score=old_score.authenticity_score,
+                total_score=old_score.total_score,
+                score_breakdown=old_score.score_breakdown,
+                gap_analysis=old_score.gap_analysis,
+                rank=old_score.rank,
+                scoring_config_snapshot=old_score.scoring_config_snapshot
+            )
+            db.add(new_score)
+
     await db.commit()
     return {"status": "success", "new_job_id": str(new_job.id), "new_job_title": new_title}
 
@@ -134,7 +162,7 @@ async def generate_email_draft(candidate_id: UUID, db: AsyncSession) -> Dict[str
     
     try:
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -194,7 +222,7 @@ async def generate_bulk_email_draft(job_id: UUID, db: AsyncSession, adjustments:
 
     try:
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_instr},
                 {"role": "user", "content": prompt}
@@ -212,10 +240,23 @@ async def generate_bulk_email_draft(job_id: UUID, db: AsyncSession, adjustments:
             "body": f"<p>{greeting} {{candidate_name}},</p><p>We have an opening for a <strong>{{job_title}}</strong> that aligns perfectly with your technical background.</p><p>We would value a brief conversation about this role. [Link]</p><p>Best regards,<br/>Recruitment</p>"
         }
 
-async def generate_interview_questions(candidate_id: UUID, db: AsyncSession, category: str = "technical") -> Dict[str, Any]:
+async def generate_interview_questions(candidate_id: UUID, db: AsyncSession, category: str = "technical", force: bool = False) -> Dict[str, Any]:
     """Generate categorized interview questions (Easy, Med, Hard) by synthesizing JD, Resume, and GitHub."""
     from app.db.models import Resume, GitHubAnalysis, InterviewQuestion, Job, JDVersion
     
+    # 0. Check if questions already exist and we are not forcing regeneration
+    if not force:
+        stmt_existing = (
+            select(InterviewQuestion)
+            .where(InterviewQuestion.candidate_id == candidate_id)
+            .where(InterviewQuestion.question_category == category)
+            .order_by(InterviewQuestion.created_at.desc())
+        )
+        res_existing = await db.execute(stmt_existing)
+        existing = res_existing.scalars().first()
+        if existing:
+            return existing.questions
+
     # 1. Fetch ALL Context flawlessy
     stmt = (
         select(Candidate, Job)
@@ -279,7 +320,7 @@ async def generate_interview_questions(candidate_id: UUID, db: AsyncSession, cat
 
     try:
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": f"You are a world-class {'technical' if category == 'technical' else 'HR'} interviewer. Return JSON."},
                 {"role": "user", "content": prompt}
@@ -295,7 +336,7 @@ async def generate_interview_questions(candidate_id: UUID, db: AsyncSession, cat
             job_id=job.id,
             questions=questions,
             question_category=category,
-            llm_model="llama-3.3-70b-versatile"
+            llm_model="openai/gpt-oss-120b"
         )
         db.add(new_q)
         await db.commit()
@@ -428,7 +469,7 @@ async def generate_offer_template(job_id: UUID, db: AsyncSession) -> Dict[str, s
 
     try:
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_instr},
                 {"role": "user", "content": prompt}
@@ -463,7 +504,7 @@ async def refine_offer_template(job_id: UUID, current_html: str, feedback: str, 
 
     try:
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_instr},
                 {"role": "user", "content": prompt}
@@ -480,9 +521,3 @@ async def refine_offer_template(job_id: UUID, current_html: str, feedback: str, 
     except Exception as e:
         print(f"REFINEMENT ERROR: {e}")
         return {"html": current_html} # Fallback to current
-    except Exception as e:
-        print(f"TEMPLATE GEN ERROR: {e}")
-        return {
-            "header": "<h3>OFFER OF EMPLOYMENT</h3><p>Date: {{date}}</p><p>To: {{candidate_name}}</p>",
-            "content": f"<p>Dear {{candidate_name}},</p><p>We are thrilled to offer you the position of <strong>{job.title}</strong>. Your compensation will be {{salary}} and your start date is {{joining_date}}.</p><p>Welcome to the team!</p>"
-        }

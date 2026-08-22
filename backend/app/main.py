@@ -33,7 +33,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"] if "*" in settings.ALLOWED_ORIGINS else settings.ALLOWED_ORIGINS,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:5175", "http://127.0.0.1:5175"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -86,8 +86,15 @@ def create_app() -> FastAPI:
     from app.modules.auth.router import router as auth_router
     from app.modules.students.router import router as students_router
     from app.modules.admin.router import router as admin_router
+    from app.modules.esign.router import router as esign_router
+    from app.modules.style_transfer.router import router as style_transfer_router
+    from app.modules.tech_recruiter.router import router as tech_recruiter_router
+    from app.modules.hr.router import router as hr_router
+    from app.modules.schedule.router import router as schedule_router
+    from app.modules.auth.oauth_router import router as oauth_router
     
     app.include_router(auth_router, prefix=settings.API_V1_STR)
+    app.include_router(oauth_router, prefix=settings.API_V1_STR)
     app.include_router(admin_router, prefix=settings.API_V1_STR)
     app.include_router(jd_router, prefix=settings.API_V1_STR)
     app.include_router(candidates_router, prefix=settings.API_V1_STR)
@@ -96,7 +103,14 @@ def create_app() -> FastAPI:
     app.include_router(email_router, prefix=settings.API_V1_STR)
     app.include_router(audit_router, prefix=settings.API_V1_STR)
     app.include_router(students_router, prefix=settings.API_V1_STR)
+    app.include_router(esign_router, prefix=settings.API_V1_STR)
+    app.include_router(style_transfer_router, prefix=settings.API_V1_STR)
+    app.include_router(tech_recruiter_router, prefix=settings.API_V1_STR)
+    app.include_router(hr_router, prefix=settings.API_V1_STR)
+    app.include_router(schedule_router, prefix=settings.API_V1_STR)
     
     return app
 
 app = create_app()
+
+# Uvicorn hot-reload trigger comment to load updated .env keys

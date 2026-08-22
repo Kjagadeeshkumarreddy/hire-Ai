@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     def admin_passkey(self) -> str:
         return self.ADMIN_PASSKEY.strip()
 
+    # Google OAuth Configuration (for Calendar/Meet integration)
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+
+    # Microsoft OAuth Configuration (for Teams integration)
+    MICROSOFT_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CLIENT_SECRET: Optional[str] = None
+    MICROSOFT_TENANT_ID: Optional[str] = None
+
     @property
     def psycopg_url(self) -> str:
         # Native psycopg3 URI
