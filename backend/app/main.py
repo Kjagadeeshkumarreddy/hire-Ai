@@ -31,9 +31,24 @@ def create_app() -> FastAPI:
     from app.middleware.audit import AuditLogMiddleware
     app.add_middleware(AuditLogMiddleware)
 
+    cors_origins = list(settings.cors_origins)
+    default_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
+        "https://hire-ai-xi.vercel.app",
+    ]
+    for origin in default_origins:
+        if origin not in cors_origins and "*" not in cors_origins:
+            cors_origins.append(origin)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:5175", "http://127.0.0.1:5175"],
+        allow_origins=cors_origins,
+        allow_origin_regex=r"https://.*\.vercel\.app",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

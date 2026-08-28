@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from typing import Optional, Union
 from pathlib import Path
 
 class Settings(BaseSettings):
@@ -26,8 +26,25 @@ class Settings(BaseSettings):
     def github_token(self) -> str:
         return self.GITHUB_TOKEN.strip()
 
-    ALLOWED_ORIGINS: list[str] = ["*"]
+    ALLOWED_ORIGINS: Union[str, list[str]] = ["*"]
     
+    @property
+    def cors_origins(self) -> list[str]:
+        val = self.ALLOWED_ORIGINS
+        if isinstance(val, str):
+            val = val.strip()
+            if val.startswith("[") and val.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(val)
+                    if isinstance(parsed, list):
+                        return [str(x).strip() for x in parsed if str(x).strip()]
+                except Exception:
+                    pass
+            return [x.strip() for x in val.split(",") if x.strip()]
+        elif isinstance(val, list):
+            return [str(x).strip() for x in val if str(x).strip()]
+        return ["*"]
     # Auth configuration
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
