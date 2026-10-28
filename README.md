@@ -1,4 +1,4 @@
-<![CDATA[<div align="center">
+<div align="center">
 
 # 🤖 Hire-AI — Agentic AI Hiring Platform
 
@@ -507,4 +507,3 @@ The `vercel.json` is pre-configured with SPA rewrite rules for client-side routi
 **Built with ❤️ by [Jagadeesh Kumar Reddy](https://github.com/Kjagadeeshkumarreddy)**
 
 </div>
-]]>

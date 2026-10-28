@@ -2,7 +2,7 @@ import sys
 import asyncio
 
 if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Initialize structured logging before anything else
 from app.logging_config import setup_logging

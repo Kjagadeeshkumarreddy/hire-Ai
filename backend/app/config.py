@@ -13,7 +13,15 @@ class Settings(BaseSettings):
     
     @property
     def redis_url(self) -> str:
-        return self.REDIS_URL.strip()
+        url = self.REDIS_URL.strip()
+        if "-u " in url:
+            url = url.split("-u ")[-1].strip()
+        elif url.startswith("redis-cli"):
+            parts = url.split()
+            url = parts[-1].strip()
+        if url.startswith("redis://") and "upstash.io" in url:
+            url = "rediss://" + url[len("redis://"):]
+        return url
         
     GROQ_API_KEY: str
     GITHUB_TOKEN: str
