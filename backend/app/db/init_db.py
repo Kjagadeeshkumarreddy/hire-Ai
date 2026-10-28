@@ -73,12 +73,11 @@ async def enforce_rls():
         "interview_schedules", "interview_slots"
     ]
     
+    statements = ";\n".join([f"ALTER TABLE IF EXISTS public.{t} ENABLE ROW LEVEL SECURITY" for t in tables]) + ";"
     try:
         async with engine.begin() as conn:
-            for table in tables:
-                # Idempotent RLS activation flawlessly
-                await conn.execute(text(f"ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY;"))
-            logger.info("database.rls_enforcement_complete")
+            await conn.execute(text(statements))
+        logger.info("database.rls_enforcement_complete")
     except Exception as e:
         # Ignore errors if tables don't exist yet (init_models handles creation)
         logger.warning("database.rls_enforcement_skipped", error=str(e))

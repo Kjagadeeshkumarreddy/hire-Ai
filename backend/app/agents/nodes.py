@@ -41,10 +41,8 @@ async def cached_llm_invoke(messages: list, model_name: str = "openai/gpt-oss-12
     try:
         return await cache.get_or_call(prompt_str, model_name, _direct_call)
     except Exception as e:
-        logger.error("agent.llm_call.failed", error=str(e))
-        # Do not cache failures; re-invoke directly if needed or propagate
-        # Here we propagate to let the node handle the fallback flawlessly
-        raise e
+        logger.warning("agent.cache_fallback", error=str(e), note="Bypassing cache and calling LLM directly")
+        return await _direct_call(prompt_str, model_name)
 
 def extract_json_from_response(text):
     """Reliably extract JSON content (objects or arrays) from AI responses flawlessly."""

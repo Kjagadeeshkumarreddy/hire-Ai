@@ -1,27 +1,59 @@
 import random
 import string
+import time
+from typing import Optional, Dict, Tuple
 import structlog
 from app.db.redis import redis_manager
 from app.core.mailer import send_email
 
 logger = structlog.get_logger()
 
+# In-memory fallback dictionary: {email: (otp, expiration_timestamp)}
+_in_memory_otp_cache: Dict[str, Tuple[str, float]] = {}
+
 async def generate_otp() -> str:
     """Generate a random 6-digit OTP flawlessly."""
     return ''.join(random.choices(string.digits, k=6))
 
+async def _save_otp(email: str, otp: str, ttl_seconds: int = 300) -> None:
+    """Store OTP in Redis if available, with in-memory fallback."""
+    redis = redis_manager.get_client()
+    if redis:
+        try:
+            await redis.set(f"otp:{email}", otp, ex=ttl_seconds)
+            return
+        except Exception as e:
+            logger.warning("otp.redis_set_fallback", email=email, error=str(e))
+    # Fallback to local memory
+    _in_memory_otp_cache[email] = (otp, time.time() + ttl_seconds)
+
+async def _get_and_remove_otp(email: str) -> Optional[str]:
+    """Retrieve and delete OTP from Redis or in-memory cache."""
+    redis = redis_manager.get_client()
+    if redis:
+        try:
+            key = f"otp:{email}"
+            val = await redis.get(key)
+            if val:
+                await redis.delete(key)
+                return str(val)
+        except Exception as e:
+            logger.warning("otp.redis_get_fallback", email=email, error=str(e))
+
+    # Fallback to local memory
+    stored = _in_memory_otp_cache.pop(email, None)
+    if stored:
+        otp_val, expires_at = stored
+        if time.time() <= expires_at:
+            return otp_val
+    return None
+
 async def send_otp_email(email: str) -> bool:
-    """Generate OTP, store in Redis, and send via email flawlessly."""
+    """Generate OTP, store it, and send via email flawlessly."""
     otp = await generate_otp()
     
-    # Store in Redis with a 5-minute (300 seconds) expiration
-    redis = redis_manager.get_client()
-    if not redis:
-        logger.error("otp.redis_not_connected", email=email)
-        return False
-        
-    key = f"otp:{email}"
-    await redis.set(key, otp, ex=300)
+    # Store OTP with a 5-minute (300 seconds) expiration
+    await _save_otp(email, otp, ttl_seconds=300)
     
     # Prepare email content
     subject = "Your Verification Code - Hire-AI"
@@ -48,18 +80,10 @@ async def send_otp_email(email: str) -> bool:
     return success
 
 async def verify_otp(email: str, otp: str) -> bool:
-    """Verify the provided OTP against the one stored in Redis flawlessly."""
-    redis = redis_manager.get_client()
-    if not redis:
-        logger.error("otp.redis_not_connected", email=email)
-        return False
-        
-    key = f"otp:{email}"
-    stored_otp = await redis.get(key)
+    """Verify the provided OTP against Redis or in-memory fallback."""
+    stored_otp = await _get_and_remove_otp(email)
     
-    if stored_otp and stored_otp == otp:
-        # Delete OTP after successful verification to prevent reuse
-        await redis.delete(key)
+    if stored_otp and stored_otp == otp.strip():
         logger.info("otp.verification_success", email=email)
         return True
     

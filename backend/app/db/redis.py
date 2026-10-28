@@ -11,21 +11,39 @@ class RedisManager:
     async def connect(self):
         """Initialize the async Redis client with TLS support for Upstash."""
         if not self.redis:
+            url = settings.redis_url
+            if not url or url.lower() in ["none", "null", ""]:
+                logger.warning("redis.connection.skipped", reason="REDIS_URL not configured")
+                return
+
             try:
-                # Upstash rediss:// URLs already include the protocol for TLS
-                # We use health_check_interval to keep connections alive flawlessly
+                import asyncio
+                # Set socket timeouts so unreachable hosts or DNS issues don't stall startup
                 self.redis = redis.from_url(
-                    settings.redis_url,
+                    url,
                     encoding="utf-8",
                     decode_responses=True,
-                    health_check_interval=30
+                    health_check_interval=30,
+                    socket_connect_timeout=5,
+                    socket_timeout=5
                 )
-                # Verify connection
-                await self.redis.ping()
-                logger.info("redis.connection.success", url=settings.redis_url.split("@")[-1])
+                # Verify connection with a strict 5-second timeout
+                await asyncio.wait_for(self.redis.ping(), timeout=5.0)
+                logger.info("redis.connection.success", url=url.split("@")[-1] if "@" in url else "connected")
             except Exception as e:
-                logger.error("redis.connection.failed", error=str(e))
-                raise e
+                host = url.split("@")[-1] if "@" in url else url
+                logger.warning(
+                    "redis.connection.fallback",
+                    error=str(e),
+                    target_host=host,
+                    note="Redis is currently unreachable. The server will continue running using in-memory fallbacks."
+                )
+                if self.redis:
+                    try:
+                        await self.redis.close()
+                    except Exception:
+                        pass
+                self.redis = None
 
     async def disconnect(self):
         """Gracefully close the Redis client."""
